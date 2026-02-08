@@ -4,13 +4,58 @@ const { callProvider } = require('../services/aiService');
 
 const router = express.Router();
 
-const LOOT_PROMPT = [
-  '你是Pathfinder 1e Loot解析助手。',
-  '请把输入解析成严格JSON，不要输出任何JSON以外文字。',
-  'JSON结构：{"loot_items":[{"name":"","type":"","slot":null,"quantity":1,"unit_price":0,"weight":0,"description":""}],"note":""}',
-  'type可选：装备、药水、卷轴、金钱、其他。',
-  '如果缺失字段，使用合理默认值。'
-].join('\n');
+const DEFAULT_LOOT_TYPES = ['装备', '药水', '卷轴', '金钱', '其他'];
+const DEFAULT_SLOT_OPTIONS = [
+  '主手', '副手', '盔甲', '盾牌', '披风', '腰带',
+  '头环', '头部', '护符', '戒指', '腕部', '胸部',
+  '躯体', '眼睛', '脚部', '手套', '手臂', '奇物'
+];
+
+async function loadLootTypeAndSlotContext(db) {
+  const typeRows = await db.all(`
+    SELECT DISTINCT type
+    FROM items
+    WHERE type IS NOT NULL AND TRIM(type) <> ''
+    ORDER BY type ASC
+  `);
+  const slotRows = await db.all(`
+    SELECT DISTINCT slot
+    FROM items
+    WHERE slot IS NOT NULL AND TRIM(slot) <> ''
+    ORDER BY slot ASC
+  `);
+
+  const knownTypes = typeRows
+    .map((x) => String(x.type || '').trim())
+    .filter(Boolean);
+  const knownSlots = slotRows
+    .map((x) => {
+      const text = String(x.slot || '').trim();
+      if (!text) return '';
+      if (text.startsWith('戒指')) return '戒指';
+      return text;
+    })
+    .filter(Boolean);
+
+  return {
+    types: [...new Set([...DEFAULT_LOOT_TYPES, ...knownTypes])],
+    slots: [...new Set([...DEFAULT_SLOT_OPTIONS, ...knownSlots])]
+  };
+}
+
+function buildLootPrompt(context) {
+  return [
+    '你是Pathfinder 1e Loot解析助手。',
+    '请把输入解析成严格JSON，不要输出任何JSON以外文字。',
+    'JSON结构：{"loot_items":[{"name":"","type":"","slot":null,"quantity":1,"unit_price":0,"weight":0,"description":""}],"note":""}',
+    `当前仓库已有type：${JSON.stringify(context.types)}。`,
+    'type必须从上述列表中选择；若不确定，使用"其他"。',
+    `当前仓库已有装备槽位：${JSON.stringify(context.slots)}。`,
+    '当type为"装备"时，slot必须从上述槽位中选择；当type不是"装备"时，slot必须为null。',
+    '不要创造新的type或slot。',
+    '如果缺失字段，使用合理默认值。'
+  ].join('\n');
+}
 
 const EXPENSE_PROMPT = [
   '你是Pathfinder 1e 支出解析助手。',
@@ -114,11 +159,13 @@ router.post('/parse-loot', async (req, res, next) => {
     if (!provider) {
       return res.status(400).json({ message: '请先在设置页配置AI Provider' });
     }
+    const lootContext = await loadLootTypeAndSlotContext(db);
+    const lootPrompt = buildLootPrompt(lootContext);
 
     const caption = await maybeCaptionImage(db, provider, imageDataUrl || null);
     const mergedInput = [inputText, caption.text].filter(Boolean).join('\n\n');
 
-    const result = await callProvider(provider, LOOT_PROMPT, mergedInput, caption.imageDataUrl);
+    const result = await callProvider(provider, lootPrompt, mergedInput, caption.imageDataUrl);
 
     return res.json({
       provider: {
