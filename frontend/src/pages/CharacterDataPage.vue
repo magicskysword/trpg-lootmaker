@@ -25,10 +25,10 @@
               style="width: 120px"
             />
             <n-select
-              v-model:value="warehouseFilter.unassigned"
-              :options="unassignedFilterOptions"
+              v-model:value="warehouseFilter.assignment"
+              :options="assignmentFilterOptions"
               size="small"
-              style="width: 170px"
+              style="width: 240px"
             />
             <n-select
               v-model:value="warehouseFilter.matchMode"
@@ -680,7 +680,7 @@ const txSummary = ref(null);
 const warehouseFilter = reactive({
   keyword: '',
   type: '',
-  unassigned: '',
+  assignment: '',
   matchMode: 'all',
   sort: 'name_asc'
 });
@@ -698,11 +698,19 @@ const typeFilterOptions = computed(() => [
   ...itemTypeOptions
 ]);
 
-const unassignedFilterOptions = [
-  { label: '未分配: 全部', value: '' },
-  { label: '未分配: 有剩余', value: 'has' },
-  { label: '未分配: 无剩余', value: 'none' }
-];
+const assignmentFilterOptions = computed(() => {
+  const baseOptions = [
+    { label: '分配：全部', value: '' },
+    { label: '分配：未分配', value: 'unassigned' },
+    { label: '分配：已分配', value: 'assigned_full' },
+    { label: '分配：部分分配', value: 'assigned_partial' },
+    { label: '分配：未分配+部分分配', value: 'unassigned_or_partial' }
+  ];
+  const plOptions = characters.value
+    .filter((x) => x.role === 'PL')
+    .map((x) => ({ label: `分配：${x.name}`, value: `char:${x.id}` }));
+  return [...baseOptions, ...plOptions];
+});
 
 const matchModeOptions = [
   { label: '筛选: 同时满足', value: 'all' },
@@ -728,8 +736,16 @@ function getRemainingQuantity(item) {
     return Math.max(0, raw);
   }
   const quantity = Number(item?.quantity || 0);
-  const allocated = (item?.allocations || []).reduce((sum, x) => sum + Number(x.quantity || 0), 0);
+  const allocated = getAllocatedQuantity(item);
   return Math.max(0, quantity - allocated);
+}
+
+function getAllocatedQuantity(item) {
+  const raw = Number(item?.allocated_quantity);
+  if (Number.isFinite(raw)) {
+    return Math.max(0, raw);
+  }
+  return (item?.allocations || []).reduce((sum, x) => sum + Number(x.quantity || 0), 0);
 }
 
 function getRemainingValue(item) {
@@ -753,10 +769,22 @@ const filteredItems = computed(() => {
   if (warehouseFilter.type) {
     conditions.push((x) => x.type === warehouseFilter.type);
   }
-  if (warehouseFilter.unassigned === 'has') {
-    conditions.push((x) => getRemainingQuantity(x) > 0);
-  } else if (warehouseFilter.unassigned === 'none') {
-    conditions.push((x) => getRemainingQuantity(x) <= 0);
+  if (warehouseFilter.assignment) {
+    const assignment = warehouseFilter.assignment;
+    if (assignment === 'unassigned') {
+      conditions.push((x) => getAllocatedQuantity(x) <= 0);
+    } else if (assignment === 'assigned_full') {
+      conditions.push((x) => getAllocatedQuantity(x) > 0 && getRemainingQuantity(x) <= 0);
+    } else if (assignment === 'assigned_partial') {
+      conditions.push((x) => getAllocatedQuantity(x) > 0 && getRemainingQuantity(x) > 0);
+    } else if (assignment === 'unassigned_or_partial') {
+      conditions.push((x) => getRemainingQuantity(x) > 0);
+    } else if (assignment.startsWith('char:')) {
+      const characterId = assignment.slice(5);
+      conditions.push((x) => (x.allocations || []).some(
+        (alloc) => alloc.character_id === characterId && Number(alloc.quantity || 0) > 0
+      ));
+    }
   }
 
   if (conditions.length) {
