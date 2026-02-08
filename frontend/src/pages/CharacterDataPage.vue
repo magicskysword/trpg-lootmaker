@@ -25,10 +25,22 @@
               style="width: 120px"
             />
             <n-select
+              v-model:value="warehouseFilter.unassigned"
+              :options="unassignedFilterOptions"
+              size="small"
+              style="width: 170px"
+            />
+            <n-select
+              v-model:value="warehouseFilter.matchMode"
+              :options="matchModeOptions"
+              size="small"
+              style="width: 170px"
+            />
+            <n-select
               v-model:value="warehouseFilter.sort"
               :options="sortOptions"
               size="small"
-              style="width: 130px"
+              style="width: 170px"
             />
             <n-button
               v-if="selectedItemIds.length"
@@ -57,6 +69,7 @@
                   <th style="width:70px">数量</th>
                   <th style="width:80px">单价</th>
                   <th style="width:70px">重量</th>
+                  <th style="width:130px">未分配</th>
                   <th>拥有者</th>
                   <th style="width:130px">操作</th>
                 </tr>
@@ -140,6 +153,12 @@
                     <span v-else class="editable-cell" @click="startInlineEdit(row, 'weight')">
                       {{ row.weight }}
                     </span>
+                  </td>
+                  <td>
+                    <div class="remaining-cell">
+                      <span class="remaining-qty">{{ formatAmount(getRemainingQuantity(row)) }}</span>
+                      <span class="remaining-value">{{ getRemainingValue(row).toFixed(1) }} gp</span>
+                    </div>
                   </td>
                   <td>
                     <div class="alloc-tags">
@@ -369,6 +388,7 @@
                 <div class="lr-header-right">
                   <span class="fantasy-badge gold">{{ lrItemCount(record) }} 项物品</span>
                   <span class="lr-total-value">总价值: {{ lrTotalValue(record).toFixed(1) }} gp</span>
+                  <button class="icon-btn danger small" title="删除Loot记录" @click.stop="removeLootRecord(record)">🗑</button>
                 </div>
               </div>
 
@@ -626,7 +646,13 @@ const transactions = ref([]);
 const txSummary = ref(null);
 
 // --- Warehouse filtering/sorting ---
-const warehouseFilter = reactive({ keyword: '', type: '', sort: 'name_asc' });
+const warehouseFilter = reactive({
+  keyword: '',
+  type: '',
+  unassigned: '',
+  matchMode: 'all',
+  sort: 'name_asc'
+});
 const selectedItemIds = ref([]);
 
 const itemTypeOptions = [
@@ -641,30 +667,84 @@ const typeFilterOptions = computed(() => [
   ...itemTypeOptions
 ]);
 
+const unassignedFilterOptions = [
+  { label: '未分配: 全部', value: '' },
+  { label: '未分配: 有剩余', value: 'has' },
+  { label: '未分配: 无剩余', value: 'none' }
+];
+
+const matchModeOptions = [
+  { label: '筛选: 同时满足', value: 'all' },
+  { label: '筛选: 任意满足', value: 'any' }
+];
+
 const sortOptions = [
   { label: '名称 A→Z', value: 'name_asc' },
   { label: '名称 Z→A', value: 'name_desc' },
   { label: '价格 高→低', value: 'price_desc' },
   { label: '价格 低→高', value: 'price_asc' },
   { label: '数量 多→少', value: 'qty_desc' },
+  { label: '未分配数量 多→少', value: 'remaining_qty_desc' },
+  { label: '未分配数量 少→多', value: 'remaining_qty_asc' },
+  { label: '未分配价值 高→低', value: 'remaining_value_desc' },
+  { label: '未分配价值 低→高', value: 'remaining_value_asc' },
   { label: '最新添加', value: 'newest' }
 ];
 
+function getRemainingQuantity(item) {
+  const raw = Number(item?.remaining_quantity);
+  if (Number.isFinite(raw)) {
+    return Math.max(0, raw);
+  }
+  const quantity = Number(item?.quantity || 0);
+  const allocated = (item?.allocations || []).reduce((sum, x) => sum + Number(x.quantity || 0), 0);
+  return Math.max(0, quantity - allocated);
+}
+
+function getRemainingValue(item) {
+  return getRemainingQuantity(item) * Number(item?.unit_price || 0);
+}
+
+function formatAmount(value) {
+  const num = Number(value || 0);
+  if (!Number.isFinite(num)) return '0';
+  return num.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+}
+
 const filteredItems = computed(() => {
   let list = [...items.value];
+  const conditions = [];
+
   if (warehouseFilter.keyword) {
     const kw = warehouseFilter.keyword.toLowerCase();
-    list = list.filter((x) => x.name.toLowerCase().includes(kw));
+    conditions.push((x) => (x.name || '').toLowerCase().includes(kw));
   }
   if (warehouseFilter.type) {
-    list = list.filter((x) => x.type === warehouseFilter.type);
+    conditions.push((x) => x.type === warehouseFilter.type);
   }
+  if (warehouseFilter.unassigned === 'has') {
+    conditions.push((x) => getRemainingQuantity(x) > 0);
+  } else if (warehouseFilter.unassigned === 'none') {
+    conditions.push((x) => getRemainingQuantity(x) <= 0);
+  }
+
+  if (conditions.length) {
+    const useAny = warehouseFilter.matchMode === 'any';
+    list = list.filter((x) => (useAny
+      ? conditions.some((fn) => fn(x))
+      : conditions.every((fn) => fn(x))));
+  }
+
   const sort = warehouseFilter.sort;
-  if (sort === 'name_asc') list.sort((a, b) => a.name.localeCompare(b.name));
-  else if (sort === 'name_desc') list.sort((a, b) => b.name.localeCompare(a.name));
+  if (sort === 'name_asc') list.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  else if (sort === 'name_desc') list.sort((a, b) => (b.name || '').localeCompare(a.name || ''));
   else if (sort === 'price_desc') list.sort((a, b) => b.unit_price - a.unit_price);
   else if (sort === 'price_asc') list.sort((a, b) => a.unit_price - b.unit_price);
   else if (sort === 'qty_desc') list.sort((a, b) => b.quantity - a.quantity);
+  else if (sort === 'remaining_qty_desc') list.sort((a, b) => getRemainingQuantity(b) - getRemainingQuantity(a));
+  else if (sort === 'remaining_qty_asc') list.sort((a, b) => getRemainingQuantity(a) - getRemainingQuantity(b));
+  else if (sort === 'remaining_value_desc') list.sort((a, b) => getRemainingValue(b) - getRemainingValue(a));
+  else if (sort === 'remaining_value_asc') list.sort((a, b) => getRemainingValue(a) - getRemainingValue(b));
   else if (sort === 'newest') list.sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
   return list;
 });
@@ -1174,6 +1254,18 @@ async function saveRecordMemo(record) {
   }
 }
 
+async function removeLootRecord(record) {
+  if (!window.confirm(`确认删除该Loot记录（${formatDate(record.created_at)}）？`)) return;
+  try {
+    await apiRequest(`/api/loot-records/${record.id}`, { method: 'DELETE' });
+    expandedRecordIds.value = expandedRecordIds.value.filter((x) => x !== record.id);
+    message.success('Loot记录已删除');
+    await loadLootRecords();
+  } catch (error) {
+    message.error(error.message || '删除Loot记录失败');
+  }
+}
+
 function formatDate(v) {
   if (!v) return '';
   return new Date(v).toLocaleString();
@@ -1230,6 +1322,15 @@ onMounted(async () => {
 }
 .editable-cell:hover { background: rgba(201, 168, 76, 0.1); }
 .inline-edit { display: block; min-width: 60px; }
+
+.remaining-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  line-height: 1.2;
+}
+.remaining-qty { color: var(--gold); font-weight: 600; }
+.remaining-value { color: var(--text-secondary); font-size: 12px; }
 
 .alloc-tags { display: flex; flex-wrap: wrap; gap: 4px; }
 .alloc-tag {

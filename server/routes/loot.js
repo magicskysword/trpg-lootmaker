@@ -339,4 +339,21 @@ router.put('/:id/memo', async (req, res, next) => {
   }
 });
 
+router.delete('/:id', async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const db = await getDb();
+
+    const row = await db.get('SELECT id FROM loot_records WHERE id = ?', [id]);
+    if (!row) {
+      return res.status(404).json({ message: 'Loot记录不存在' });
+    }
+
+    await db.run('DELETE FROM loot_records WHERE id = ?', [id]);
+    return res.json({ message: 'Loot记录已删除' });
+  } catch (error) {
+    return next(error);
+  }
+});
+
 module.exports = router;
