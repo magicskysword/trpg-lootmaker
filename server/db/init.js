@@ -10,7 +10,6 @@ async function initDb() {
       role TEXT NOT NULL DEFAULT 'PL',
       color TEXT NOT NULL DEFAULT '#5B8FF9',
       portrait_path TEXT,
-      slot_warning_disabled INTEGER NOT NULL DEFAULT 0,
       notes TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL

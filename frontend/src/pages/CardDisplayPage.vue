@@ -162,11 +162,34 @@ const message = useMessage();
 const loading = ref(false);
 const characters = ref([]);
 const scrollContainer = ref(null);
+const equipmentSlotOrder = [
+  '主手', '副手', '盔甲', '盾牌', '披风', '腰带',
+  '头环', '头部', '护符', '戒指', '腕部', '胸部',
+  '躯体', '眼睛', '脚部', '手套', '手臂', '奇物'
+];
+const slotOrderMap = new Map(equipmentSlotOrder.map((slot, idx) => [slot, idx]));
 
 const plCharacters = computed(() => characters.value.filter((x) => x.role === 'PL'));
 
 function charTotalGp(character) {
   return (character.items || []).reduce((sum, i) => sum + (i.quantity * i.unit_price), 0);
+}
+
+function normalizeSlotForSort(slot) {
+  if (slot == null) return '';
+  const text = String(slot).trim();
+  if (!text) return '';
+  if (text.startsWith('戒指')) return '戒指';
+  return text;
+}
+
+function compareEquipmentBySlot(a, b) {
+  const slotA = normalizeSlotForSort(a.slot);
+  const slotB = normalizeSlotForSort(b.slot);
+  const orderA = slotOrderMap.has(slotA) ? slotOrderMap.get(slotA) : Number.MAX_SAFE_INTEGER;
+  const orderB = slotOrderMap.has(slotB) ? slotOrderMap.get(slotB) : Number.MAX_SAFE_INTEGER;
+  if (orderA !== orderB) return orderA - orderB;
+  return String(a.name || '').localeCompare(String(b.name || ''));
 }
 
 function grouped(character) {
@@ -179,6 +202,7 @@ function grouped(character) {
     else if (item.type === '药水' || item.type === '卷轴') consumables.push(item);
     else others.push(item);
   }
+  equipment.sort(compareEquipmentBySlot);
   return { equipment, consumables, others };
 }
 

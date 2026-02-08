@@ -158,11 +158,11 @@
                       />
                     </span>
                     <span v-else class="editable-cell" @click="startInlineEdit(row, 'weight')">
-                      {{ row.weight }}
+                      {{ formatAmount(row.weight) }} lb
                     </span>
                   </td>
                   <td>
-                    <div class="remaining-cell">
+                    <div v-if="getRemainingQuantity(row) > 0" class="remaining-cell">
                       <span class="remaining-qty">{{ formatAmount(getRemainingQuantity(row)) }}</span>
                       <span class="remaining-value">{{ getRemainingValue(row).toFixed(1) }} gp</span>
                     </div>
@@ -248,10 +248,6 @@
                       <div class="form-group">
                         <label class="form-label">色系</label>
                         <n-color-picker v-model:value="characterForm.color" size="small" />
-                      </div>
-                      <div class="form-group">
-                        <label class="form-label">禁用槽位警告</label>
-                        <n-switch v-model:value="characterForm.slot_warning_disabled" />
                       </div>
                     </div>
                     <div class="form-actions">
@@ -535,10 +531,6 @@
             <label class="form-label">色系</label>
             <n-color-picker v-model:value="newCharForm.color" size="small" />
           </div>
-          <div class="form-group">
-            <label class="form-label">禁用槽位警告</label>
-            <n-switch v-model:value="newCharForm.slot_warning_disabled" />
-          </div>
         </div>
       </div>
       <template #footer>
@@ -610,6 +602,15 @@
         <div v-if="batchTypeTarget && batchTypeTarget !== '装备'" class="muted" style="margin-top: 8px; font-size: 12px;">
           修改为非装备类型时，会自动清空槽位。
         </div>
+        <div v-if="batchTypeTarget === '装备'" class="form-group" style="margin-top: 10px;">
+          <label class="form-label">目标槽位</label>
+          <n-select
+            v-model:value="batchTypeSlot"
+            :options="batchSlotOptions"
+            clearable
+            placeholder="选择槽位（不选则尽量保留原槽位）"
+          />
+        </div>
       </div>
       <template #footer>
         <div class="modal-footer">
@@ -653,7 +654,6 @@ import {
   NInput,
   NSelect,
   NColorPicker,
-  NSwitch,
   NButton,
   NInputNumber,
   NCheckbox,
@@ -692,6 +692,12 @@ const itemTypeOptions = [
   { label: '卷轴', value: '卷轴' },
   { label: '其他', value: '其他' }
 ];
+
+const batchSlotOptions = [
+  '主手', '副手', '盔甲', '盾牌', '披风', '腰带',
+  '头环', '头部', '护符', '戒指', '腕部', '胸部',
+  '躯体', '眼睛', '脚部', '手套', '手臂', '奇物'
+].map((x) => ({ label: x, value: x }));
 
 const typeFilterOptions = computed(() => [
   { label: '全部类型', value: '' },
@@ -842,12 +848,25 @@ async function batchDeleteItems() {
 // --- Batch type update ---
 const batchTypeModalShow = ref(false);
 const batchTypeTarget = ref('');
+const batchTypeSlot = ref(null);
 
 function openBatchTypeModal() {
   if (!selectedItemIds.value.length) return;
   const selectedRows = items.value.filter((x) => selectedItemIds.value.includes(x.id));
   const typeSet = new Set(selectedRows.map((x) => x.type).filter(Boolean));
   batchTypeTarget.value = typeSet.size === 1 ? [...typeSet][0] : '';
+  const slotSet = new Set(
+    selectedRows
+      .filter((x) => x.type === '装备')
+      .map((x) => {
+        const text = String(x.slot || '').trim();
+        if (!text) return null;
+        if (text.startsWith('戒指')) return '戒指';
+        return text;
+      })
+      .filter((x) => x != null && String(x).trim() !== '')
+  );
+  batchTypeSlot.value = slotSet.size === 1 ? [...slotSet][0] : null;
   batchTypeModalShow.value = true;
 }
 
@@ -868,7 +887,9 @@ async function confirmBatchTypeUpdate() {
       body: {
         ...row,
         type: batchTypeTarget.value,
-        slot: batchTypeTarget.value === '装备' ? row.slot || null : null
+        slot: batchTypeTarget.value === '装备'
+          ? (batchTypeSlot.value ?? row.slot ?? null)
+          : null
       }
     })));
     message.success(`已批量修改 ${selectedRows.length} 个物品类型`);
@@ -957,8 +978,7 @@ async function submitAllocation() {
         mode: allocationState.mode
       }
     });
-    if (data.warning) message.warning(data.warning);
-    else message.success('分配成功');
+    if (data?.item) message.success('分配成功');
     allocationModal.value = false;
     await loadItems();
   } catch (error) {
@@ -1003,7 +1023,7 @@ const charTotalValue = computed(() => {
 });
 
 const characterForm = reactive({
-  id: '', name: '', role: 'PL', color: '#5B8FF9', notes: '', slot_warning_disabled: false
+  id: '', name: '', role: 'PL', color: '#5B8FF9', notes: ''
 });
 
 function randomFantasyColor() {
@@ -1014,14 +1034,13 @@ function randomFantasyColor() {
 }
 
 const newCharForm = reactive({
-  name: '', role: 'PL', color: randomFantasyColor(), slot_warning_disabled: false
+  name: '', role: 'PL', color: randomFantasyColor()
 });
 
 function openNewCharacterModal() {
   newCharForm.name = '';
   newCharForm.role = 'PL';
   newCharForm.color = randomFantasyColor();
-  newCharForm.slot_warning_disabled = false;
   newCharModalShow.value = true;
 }
 
@@ -1032,7 +1051,6 @@ function selectCharacter(ch) {
   characterForm.role = ch.role;
   characterForm.color = ch.color;
   characterForm.notes = ch.notes || '';
-  characterForm.slot_warning_disabled = Boolean(ch.slot_warning_disabled);
   charDetailTab.value = 'edit';
 }
 

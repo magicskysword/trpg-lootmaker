@@ -50,38 +50,6 @@ async function loadItemsView(db) {
   });
 }
 
-async function findSlotConflict(db, characterId, itemId, slot) {
-  if (!slot || slot === '奇物') {
-    return null;
-  }
-
-  const character = await db.get(
-    'SELECT id, name, slot_warning_disabled FROM characters WHERE id = ?',
-    [characterId]
-  );
-  if (!character || character.slot_warning_disabled) {
-    return null;
-  }
-
-  const conflict = await db.get(
-    `SELECT i.id, i.name
-     FROM item_allocations a
-     JOIN items i ON i.id = a.item_id
-     WHERE a.character_id = ?
-       AND i.type = ?
-       AND i.slot = ?
-       AND i.id <> ?
-     LIMIT 1`,
-    [characterId, EQUIP_TYPE, slot, itemId]
-  );
-
-  if (!conflict) {
-    return null;
-  }
-
-  return `角色当前槽位 ${slot} 已有装备 ${conflict.name}`;
-}
-
 router.get('/', async (req, res, next) => {
   try {
     const db = await getDb();
@@ -308,16 +276,10 @@ router.post('/:id/allocations', async (req, res, next) => {
       );
     }
 
-    const slotWarning =
-      item.type === EQUIP_TYPE ? await findSlotConflict(db, characterId, itemId, item.slot) : null;
-
     const items = await loadItemsView(db);
     const updated = items.find((x) => x.id === itemId);
 
-    return res.json({
-      item: updated,
-      warning: slotWarning
-    });
+    return res.json({ item: updated });
   } catch (error) {
     return next(error);
   }

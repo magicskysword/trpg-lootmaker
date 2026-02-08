@@ -24,18 +24,11 @@ const upload = multer({
   }
 });
 
-function normalizeCharacter(row) {
-  return {
-    ...row,
-    slot_warning_disabled: Boolean(row.slot_warning_disabled)
-  };
-}
-
 router.get('/', async (req, res, next) => {
   try {
     const db = await getDb();
     const characters = await db.all(
-      `SELECT id, name, role, color, portrait_path, slot_warning_disabled, notes, created_at, updated_at
+      `SELECT id, name, role, color, portrait_path, notes, created_at, updated_at
        FROM characters
        ORDER BY created_at ASC`
     );
@@ -80,7 +73,7 @@ router.get('/', async (req, res, next) => {
 
     res.json(
       characters.map((row) => ({
-        ...normalizeCharacter(row),
+        ...row,
         buffs: buffMap.get(row.id) || [],
         items: itemMap.get(row.id) || []
       }))
@@ -92,7 +85,7 @@ router.get('/', async (req, res, next) => {
 
 router.post('/', async (req, res, next) => {
   try {
-    const { name, role = 'PL', color = '#5B8FF9', notes = '', slot_warning_disabled = false } = req.body || {};
+    const { name, role = 'PL', color = '#5B8FF9', notes = '' } = req.body || {};
     if (!name) {
       return res.status(400).json({ message: '角色名不能为空' });
     }
@@ -103,18 +96,18 @@ router.post('/', async (req, res, next) => {
 
     await db.run(
       `INSERT INTO characters
-      (id, name, role, color, notes, slot_warning_disabled, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [id, name.trim(), role, color, notes, slot_warning_disabled ? 1 : 0, now, now]
+      (id, name, role, color, notes, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [id, name.trim(), role, color, notes, now, now]
     );
 
     const created = await db.get(
-      `SELECT id, name, role, color, portrait_path, slot_warning_disabled, notes, created_at, updated_at
+      `SELECT id, name, role, color, portrait_path, notes, created_at, updated_at
        FROM characters WHERE id = ?`,
       [id]
     );
 
-    return res.status(201).json({ ...normalizeCharacter(created), buffs: [], items: [] });
+    return res.status(201).json({ ...created, buffs: [], items: [] });
   } catch (error) {
     if (String(error.message || '').includes('UNIQUE')) {
       return res.status(409).json({ message: '角色名已存在' });
@@ -126,7 +119,7 @@ router.post('/', async (req, res, next) => {
 router.put('/:id', async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { name, role, color, notes, slot_warning_disabled } = req.body || {};
+    const { name, role, color, notes } = req.body || {};
 
     const db = await getDb();
     const exists = await db.get('SELECT * FROM characters WHERE id = ?', [id]);
@@ -137,26 +130,25 @@ router.put('/:id', async (req, res, next) => {
     const now = nowIso();
     await db.run(
       `UPDATE characters
-       SET name = ?, role = ?, color = ?, notes = ?, slot_warning_disabled = ?, updated_at = ?
+       SET name = ?, role = ?, color = ?, notes = ?, updated_at = ?
        WHERE id = ?`,
       [
         name ?? exists.name,
         role ?? exists.role,
         color ?? exists.color,
         notes ?? exists.notes,
-        slot_warning_disabled == null ? exists.slot_warning_disabled : slot_warning_disabled ? 1 : 0,
         now,
         id
       ]
     );
 
     const updated = await db.get(
-      `SELECT id, name, role, color, portrait_path, slot_warning_disabled, notes, created_at, updated_at
+      `SELECT id, name, role, color, portrait_path, notes, created_at, updated_at
        FROM characters WHERE id = ?`,
       [id]
     );
 
-    return res.json(normalizeCharacter(updated));
+    return res.json(updated);
   } catch (error) {
     if (String(error.message || '').includes('UNIQUE')) {
       return res.status(409).json({ message: '角色名已存在' });
