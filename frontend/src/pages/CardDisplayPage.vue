@@ -34,7 +34,10 @@
             </div>
           </div>
           <h3 class="char-display-name">{{ character.name }}</h3>
-          <div class="char-total-gp">💰 {{ charTotalGp(character).toFixed(1) }} gp</div>
+          <div class="char-metrics">
+            <div class="char-cash-gp">现金: {{ charCashGp(character).toFixed(1) }} gp</div>
+            <div class="char-total-gp">总价值: {{ charTotalValueGp(character).toFixed(1) }} gp</div>
+          </div>
           <div class="char-title-line">
             <span></span><span class="diamond">◆</span><span></span>
           </div>
@@ -171,8 +174,14 @@ const slotOrderMap = new Map(equipmentSlotOrder.map((slot, idx) => [slot, idx]))
 
 const plCharacters = computed(() => characters.value.filter((x) => x.role === 'PL'));
 
-function charTotalGp(character) {
+function charTotalValueGp(character) {
   return (character.items || []).reduce((sum, i) => sum + (i.quantity * i.unit_price), 0);
+}
+
+function charCashGp(character) {
+  return (character.items || [])
+    .filter((x) => x.type === '金钱')
+    .reduce((sum, i) => sum + (i.quantity * i.unit_price), 0);
 }
 
 function normalizeSlotForSort(slot) {
@@ -380,11 +389,24 @@ onMounted(loadData);
   letter-spacing: 2px;
 }
 
+.char-metrics {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 4px;
+}
+
+.char-cash-gp {
+  font-size: 13px;
+  color: var(--gold-bright);
+  font-weight: 600;
+}
+
 .char-total-gp {
   font-size: 14px;
-  color: var(--gold);
-  margin-top: 4px;
-  font-weight: 600;
+  color: var(--gold-dim);
+  margin-top: 0;
+  font-weight: 500;
   letter-spacing: 1px;
 }
 

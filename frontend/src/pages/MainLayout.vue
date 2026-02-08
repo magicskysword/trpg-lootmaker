@@ -60,7 +60,7 @@ const message = useMessage();
 const campaignName = ref('');
 
 const tabs = [
-  { path: '/dashboard', label: '主控制台', icon: '🏰' },
+  { path: '/dashboard', label: '主页', icon: '🏰' },
   { path: '/cards', label: '角色展示', icon: '🃏' },
   { path: '/data', label: '总数据', icon: '📜' },
   { path: '/loot-register', label: '数据登记', icon: '💎' },

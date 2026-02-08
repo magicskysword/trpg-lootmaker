@@ -24,6 +24,11 @@
         <div class="stat-value">{{ plCharacters.length }}</div>
         <div class="stat-label">PL角色数</div>
       </div>
+      <div class="stat-card">
+        <div class="stat-icon">🪙</div>
+        <div class="stat-value">{{ formatGp(metrics.currentCash) }}<span class="stat-suffix">gp</span></div>
+        <div class="stat-label">当前现金</div>
+      </div>
     </div>
 
     <div class="dashboard-grid">
@@ -122,7 +127,8 @@ const plCharacters = ref([]);
 const plValues = ref([]);
 const metrics = reactive({
   totalGpIncome: 0,
-  totalItemValue: 0
+  totalItemValue: 0,
+  currentCash: 0
 });
 
 function formatGp(v) {
@@ -152,8 +158,9 @@ async function loadData() {
     plValues.value = data.plValues || [];
     metrics.totalGpIncome = Number(data.metrics?.totalGpIncome || 0);
     metrics.totalItemValue = Number(data.metrics?.totalItemValue || 0);
+    metrics.currentCash = Number(data.metrics?.currentCash || 0);
   } catch (error) {
-    message.error(error.message || '加载主控制台失败');
+    message.error(error.message || '加载主页失败');
   } finally {
     loading.value = false;
   }

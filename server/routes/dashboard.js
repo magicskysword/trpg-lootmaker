@@ -26,6 +26,11 @@ router.get('/', async (req, res, next) => {
       SELECT COALESCE(SUM(quantity * unit_price), 0) AS total
       FROM items
     `);
+    const currentCashRow = await db.get(`
+      SELECT COALESCE(SUM(quantity * unit_price), 0) AS total
+      FROM items
+      WHERE type = '金钱'
+    `);
 
     const incomeRows = await db.all('SELECT gold_snapshot FROM loot_records');
     let totalGpIncome = 0;
@@ -58,7 +63,8 @@ router.get('/', async (req, res, next) => {
       plCharacters: plRows,
       metrics: {
         totalGpIncome,
-        totalItemValue: Number(totalItemValueRow?.total || 0)
+        totalItemValue: Number(totalItemValueRow?.total || 0),
+        currentCash: Number(currentCashRow?.total || 0)
       },
       plValues,
       campaign_name: campaignRow?.value || ''
