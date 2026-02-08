@@ -48,6 +48,15 @@ npm install
 cp .env.example .env
 ```
 
+`.env` 建议至少配置安全相关三项：
+
+```env
+USER_PASSWORD=your-user-password
+ADMIN_PASSWORD=your-admin-password
+SESSION_SECRET=your-random-secret
+APP_PORT=3000
+```
+
 3. 启动开发模式（前后端一起）
 
 ```bash
@@ -55,7 +64,7 @@ npm run dev
 ```
 
 - 前端默认：`http://localhost:5173`
-- 后端默认：`http://localhost:3000`
+- 后端默认：`http://localhost:3000`（由 `APP_PORT` 控制）
 
 ## Windows 启动脚本
 
@@ -76,6 +85,17 @@ npm start
 
 > 生产模式下 Express 会托管 `frontend/dist`。
 
+## 开发与服务器部署如何区分
+
+- 开发模式（`npm run dev`）
+  - 同时启动 Vite 前端开发服务器 + Express 后端。
+  - 前端地址固定 `5173`，后端走 `APP_PORT`。
+  - Vite 通过代理把 `/api`、`/images` 转发到后端。
+- 服务器部署（`npm run build && npm start` 或 Docker）
+  - 只启动 Express，一个进程同时托管前端静态文件与后端 API。
+  - 外部只暴露一个端口：`APP_PORT`。
+  - 不再使用 Vite 开发服务器。
+
 ## Docker 部署
 
 1. 准备环境变量（可直接用 `.env`）
@@ -85,17 +105,21 @@ npm start
 docker compose up -d --build
 ```
 
-- 对外端口：`3000`
+- 对外端口：`${APP_PORT}`（默认 `3000`）
 - 持久化：`./data -> /app/data`
 - `temp` 不挂载 volume，容器重启后可清空
 
 ## 关键环境变量
 
-- `PORT`：服务端口
+- 必须配置（安全相关）
 - `USER_PASSWORD`：普通登录密码
 - `ADMIN_PASSWORD`：管理员密码
 - `SESSION_SECRET`：会话签名密钥
+- 可选配置
+- `APP_PORT`：统一对外端口（推荐显式配置）
+- `PORT`：PaaS 常见注入端口（兼容读取，优先级低于 `APP_PORT`）
 - `SESSION_MAX_AGE_HOURS`：会话最大时长（小时）
+- `FRONTEND_ORIGIN`：开发模式下的前端来源地址
 - `DATA_DIR`：数据目录
 - `TEMP_DIR`：临时目录
 - `TEMP_RETENTION_DAYS`：临时目录清理阈值（天）

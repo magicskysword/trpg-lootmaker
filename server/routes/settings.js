@@ -196,4 +196,31 @@ router.post('/providers/:id/fetch-models', async (req, res, next) => {
   }
 });
 
+// ===== Campaign Settings =====
+router.get('/campaign', async (req, res, next) => {
+  try {
+    const db = await getDb();
+    const row = await db.get("SELECT value FROM app_settings WHERE key = 'campaign_name'");
+    return res.json({ campaign_name: row?.value || '' });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.put('/campaign', async (req, res, next) => {
+  try {
+    const { campaign_name = '' } = req.body || {};
+    const db = await getDb();
+    const now = nowIso();
+    await db.run(
+      `INSERT INTO app_settings (key, value, updated_at) VALUES ('campaign_name', ?, ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+      [campaign_name, now]
+    );
+    return res.json({ campaign_name });
+  } catch (error) {
+    return next(error);
+  }
+});
+
 module.exports = router;

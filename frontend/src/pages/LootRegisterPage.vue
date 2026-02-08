@@ -1,253 +1,395 @@
 <template>
-  <div class="loot-grid">
-    <n-card class="card" title="Loot登记面板">
-      <n-space vertical size="large">
-        <n-space wrap>
-          <n-button type="primary" @click="addLootItem">新增Loot项</n-button>
-          <n-button @click="addGoldItem">新增金钱项</n-button>
-          <n-select v-model:value="autoRule" :options="ruleOptions" style="min-width: 180px" />
-          <n-button @click="autoAssign">自动分配</n-button>
-          <n-button tertiary type="error" @click="clearDraft">清空草稿</n-button>
-          <n-button type="success" :loading="publishing" @click="publishLoot">发布Loot</n-button>
-        </n-space>
+  <div class="loot-page">
+    <!-- Ambient particles -->
+    <div class="ambient-particles">
+      <span v-for="i in 12" :key="i" class="particle" :style="{
+        left: Math.random() * 100 + '%',
+        animationDelay: Math.random() * 8 + 's',
+        animationDuration: (6 + Math.random() * 6) + 's',
+        '--hue': i % 2 === 0 ? '45' : '265'
+      }" />
+    </div>
 
-        <n-alert type="info" :show-icon="false">
-          草稿自动保存于浏览器本地。拖动物品行并放到右侧角色卡片可快速分配。
-        </n-alert>
+    <h2 class="page-title">💎 数据登记面板</h2>
 
-        <n-table striped>
-          <thead>
-            <tr>
-              <th>选择</th>
-              <th>名称</th>
-              <th>类型/槽位</th>
-              <th>数量</th>
-              <th>单价</th>
-              <th>已分配</th>
-              <th>剩余</th>
-              <th>操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr
-              v-for="item in lootItems"
-              :key="item.client_id"
-              draggable="true"
-              @dragstart="onDragStart(item)"
-            >
-              <td>
-                <n-checkbox v-model:checked="item.selected" />
-              </td>
-              <td>
-                <n-input v-model:value="item.name" placeholder="Loot名称" />
-              </td>
-              <td>
-                <n-space vertical size="small">
-                  <n-select v-model:value="item.type" :options="itemTypeOptions" style="width: 120px" />
-                  <n-select
-                    v-model:value="item.slot"
-                    :options="slotOptions"
-                    :disabled="item.type !== '装备'"
-                    clearable
-                    style="width: 120px"
-                  />
-                </n-space>
-              </td>
-              <td><n-input-number v-model:value="item.quantity" :min="1" /></td>
-              <td><n-input-number v-model:value="item.unit_price" :min="0" /></td>
-              <td>{{ allocated(item) }}</td>
-              <td>{{ remaining(item) }}</td>
-              <td>
-                <n-space size="small">
-                  <n-button size="tiny" @click="assignRemaining(item)">分配剩余</n-button>
-                  <n-button size="tiny" type="error" tertiary @click="removeLootItem(item.client_id)">
-                    删除
-                  </n-button>
-                </n-space>
-              </td>
-            </tr>
-          </tbody>
-        </n-table>
+    <!-- Mode Switch -->
+    <div class="mode-switch">
+      <n-radio-group v-model:value="mode" size="large">
+        <n-radio-button value="loot">📥 Loot模式</n-radio-button>
+        <n-radio-button value="expense">📤 支出模式</n-radio-button>
+      </n-radio-group>
+    </div>
 
-        <div>
-          <h3 class="section-subtitle">金钱项（可选）</h3>
-          <n-space vertical>
-            <n-space v-for="gold in goldItems" :key="gold.client_id" align="center">
-              <n-input v-model:value="gold.label" placeholder="例如 GP" style="width: 160px" />
-              <n-input-number v-model:value="gold.amount" :min="0" />
-              <n-button size="tiny" type="error" tertiary @click="removeGoldItem(gold.client_id)">
-                删除
-              </n-button>
-            </n-space>
-          </n-space>
+    <!-- ==================== LOOT MODE ==================== -->
+    <template v-if="mode === 'loot'">
+      <div class="loot-grid">
+        <!-- LEFT: Unallocated Item Pool -->
+        <div class="loot-main">
+          <!-- Toolbar -->
+          <div class="ornate-frame toolbar-bar">
+            <div class="toolbar-row">
+              <n-button type="primary" @click="addLootItem">✦ 新增Loot</n-button>
+              <n-button @click="openAiModal">🤖 AI录入</n-button>
+              <div class="spacer"></div>
+              <n-select v-model:value="lootAutoRule" :options="ruleOptions" style="min-width: 170px" />
+              <n-button @click="autoAssign">⚖ 自动分配</n-button>
+              <n-button quaternary @click="clearLootDraft" class="danger-text">🗑 清空草稿</n-button>
+              <n-button type="primary" :loading="publishing" @click="publishLoot">📜 发布Loot</n-button>
+            </div>
+            <div class="toolbar-hint">
+              草稿自动保存于浏览器本地。将左侧物品拖至右侧角色区域可快速分配。
+            </div>
+          </div>
+
+          <!-- Unallocated Items Pool -->
+          <div
+            class="ornate-frame loot-table-wrap pool-area"
+            @dragover.prevent="poolDragOver = true"
+            @dragleave="poolDragOver = false"
+            @drop.prevent="onDropToPool"
+            :class="{ 'pool-highlight': poolDragOver }"
+          >
+            <div class="pool-header">
+              <h3 class="section-title">📦 未分配物品池</h3>
+              <span class="pool-count">{{ lootUnallocatedItems.length }} 项</span>
+            </div>
+            <table class="fantasy-table loot-table" v-if="lootUnallocatedItems.length">
+              <thead>
+                <tr>
+                  <th style="width:36px">✓</th>
+                  <th>名称</th>
+                  <th>类型/槽位</th>
+                  <th style="width:130px">数量</th>
+                  <th style="width:140px">单价(GP)</th>
+                  <th style="width:100px">操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr
+                  v-for="item in lootUnallocatedItems"
+                  :key="item.client_id"
+                  class="loot-row"
+                  :class="{ dragging: draggingItem?.client_id === item.client_id }"
+                  draggable="true"
+                  @dragstart="onDragStartFromPool(item, $event)"
+                  @dragend="onDragEnd"
+                >
+                  <td><n-checkbox v-model:checked="item.selected" /></td>
+                  <td>
+                    <n-input v-model:value="item.name" placeholder="物品名称" size="small" />
+                  </td>
+                  <td>
+                    <div class="type-slot-cell">
+                      <n-select v-model:value="item.type" :options="itemTypeOptions" size="small" style="width:100px" />
+                      <n-select
+                        v-model:value="item.slot"
+                        :options="slotOptions"
+                        :disabled="item.type !== '装备'"
+                        clearable
+                        size="small"
+                        style="width:100px"
+                      />
+                    </div>
+                  </td>
+                  <td><n-input-number v-model:value="item.quantity" :min="1" size="small" style="width:120px" /></td>
+                  <td><n-input-number v-model:value="item.unit_price" :min="0" size="small" style="width:130px" /></td>
+                  <td>
+                    <div class="row-actions">
+                      <button class="icon-btn" title="详细编辑" @click="openItemEdit(item)">📝</button>
+                      <button class="icon-btn danger" title="删除" @click="removeLootItem(item.client_id)">🗑</button>
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+            <div v-else class="empty-hint">
+              {{ poolDragOver ? '🎯 松开以放回物品池' : '暂无物品，点击上方「新增」或从右侧拖回' }}
+            </div>
+          </div>
+
+          <!-- Notes -->
+          <div class="ornate-frame notes-section">
+            <h3 class="section-title">📝 备注 & 备忘</h3>
+            <n-input
+              v-model:value="lootNote"
+              type="textarea"
+              placeholder="发布备注（会写入记录）"
+              :autosize="{ minRows: 2, maxRows: 4 }"
+            />
+            <n-input
+              v-model:value="lootMemoText"
+              type="textarea"
+              placeholder="纯文本备忘录"
+              :autosize="{ minRows: 2, maxRows: 4 }"
+              style="margin-top: 8px"
+            />
+          </div>
         </div>
 
-        <n-space vertical>
-          <n-input
-            v-model:value="note"
-            type="textarea"
-            placeholder="发布备注（会写入Loot记录）"
-            :autosize="{ minRows: 2, maxRows: 5 }"
-          />
-          <n-input
-            v-model:value="memoText"
-            type="textarea"
-            placeholder="纯文本备忘录"
-            :autosize="{ minRows: 2, maxRows: 5 }"
-          />
-        </n-space>
-      </n-space>
-    </n-card>
+        <!-- RIGHT: Character Allocation -->
+        <div class="loot-sidebar">
+          <div class="ornate-frame drop-zone-panel">
+            <h3 class="section-title">⚔ 角色分配区</h3>
+            <div class="drop-cards">
+              <div
+                v-for="character in plCharacters"
+                :key="character.id"
+                class="drop-card"
+                :class="{ 'drag-over': dragOverCharId === character.id }"
+                :style="{ '--char-color': character.color || '#c9a84c' }"
+                @dragover.prevent="dragOverCharId = character.id"
+                @dragleave="dragOverCharId = ''"
+                @drop.prevent="onDropToCharacter(character.id)"
+              >
+                <div class="dc-header">
+                  <div class="dc-avatar" :style="{ borderColor: character.color }">
+                    <img v-if="character.portrait_path" :src="character.portrait_path" :alt="character.name" />
+                    <span v-else class="avatar-letter">{{ character.name.slice(0, 1) }}</span>
+                  </div>
+                  <span class="dc-name">{{ character.name }}</span>
+                  <span class="dc-value">{{ charAllocValue(character.id).toFixed(1) }} gp</span>
+                </div>
+                <div class="dc-items">
+                  <div
+                    v-for="alloc in getCharAllocations(character.id)"
+                    :key="alloc.key"
+                    class="alloc-item"
+                    :style="{ borderColor: character.color, background: (character.color || '#c9a84c') + '18' }"
+                    draggable="true"
+                    @dragstart="onDragStartFromChar(alloc, character.id, $event)"
+                    @dragend="onDragEnd"
+                  >
+                    <span class="ai-name">{{ alloc.name || '未命名' }}</span>
+                    <span class="ai-qty">×{{ alloc.quantity }}</span>
+                    <span class="ai-price">{{ alloc.unit_price }} gp</span>
+                    <button class="ai-remove" title="移回物品池" @click="deallocate(alloc, character.id)">✕</button>
+                  </div>
+                  <span v-if="!getCharAllocations(character.id).length" class="empty-alloc">
+                    {{ dragOverCharId === character.id ? '🎯 松开以分配' : '拖入物品以分配' }}
+                  </span>
+                </div>
+              </div>
+              <div v-if="!plCharacters.length" class="empty-hint" style="padding:20px">暂无PL角色</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </template>
 
-    <n-card class="card" title="PL角色卡片（拖拽接收区）">
-      <n-space vertical>
-        <n-space
-          v-for="character in plCharacters"
-          :key="character.id"
-          class="drop-card"
-          :style="{ borderColor: character.color }"
-          vertical
-          @dragover.prevent
-          @drop.prevent="onDrop(character.id)"
-        >
-          <n-space align="center" justify="space-between">
-            <n-space align="center">
-              <n-avatar :src="character.portrait_path" :style="{ background: character.color }">
-                {{ character.name.slice(0, 1) }}
-              </n-avatar>
-              <strong>{{ character.name }}</strong>
-            </n-space>
-          </n-space>
+    <!-- ==================== EXPENSE MODE ==================== -->
+    <template v-if="mode === 'expense'">
+      <div class="expense-layout">
+        <div class="loot-main">
+          <!-- Toolbar -->
+          <div class="ornate-frame toolbar-bar">
+            <div class="toolbar-row">
+              <n-button type="primary" @click="addExpenseItem">✦ 新增支出</n-button>
+              <n-button @click="openAiModal">🤖 AI录入</n-button>
+              <div class="spacer"></div>
+              <n-button quaternary @click="clearExpenseDraft" class="danger-text">🗑 清空草稿</n-button>
+              <n-button type="primary" :loading="publishing" @click="publishExpense">📜 确认支出</n-button>
+            </div>
+            <div class="toolbar-hint">
+              支出模式：从仓库选择物品记录消耗/售出，或手动输入支出项。AI录入时将包含当前库存上下文。
+            </div>
+          </div>
 
-          <n-space wrap>
-            <n-tag
-              v-for="tag in characterAllocTags(character.id)"
-              :key="tag.key"
-              :color="{ color: character.color + '22', borderColor: character.color, textColor: '#102a43' }"
-            >
-              {{ tag.text }}
-            </n-tag>
-            <n-empty v-if="!characterAllocTags(character.id).length" description="未分配" size="small" />
-          </n-space>
-        </n-space>
-      </n-space>
-    </n-card>
+          <!-- Expense Items -->
+          <div class="ornate-frame loot-table-wrap pool-area">
+            <div class="pool-header">
+              <h3 class="section-title">📤 支出物品列表</h3>
+              <span class="pool-count">{{ expenseItems.length }} 项</span>
+            </div>
+            <table class="fantasy-table loot-table" v-if="expenseItems.length">
+              <thead>
+                <tr>
+                  <th style="width:50px">编号</th>
+                  <th>名称 / 仓库选择</th>
+                  <th>类型</th>
+                  <th style="width:130px">数量</th>
+                  <th style="width:140px">单价(GP)</th>
+                  <th style="width:100px">操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr
+                  v-for="item in expenseItems"
+                  :key="item.client_id"
+                  class="loot-row"
+                >
+                  <td class="expense-seq">{{ item.seq }}</td>
+                  <td>
+                    <div class="expense-name-cell">
+                      <n-select
+                        :value="item.warehouse_id || null"
+                        :options="warehouseSelectOptions"
+                        filterable
+                        clearable
+                        placeholder="选择仓库物品…"
+                        size="small"
+                        @update:value="(v) => onSelectWarehouseItem(item, v)"
+                        style="min-width: 200px"
+                      />
+                      <n-input
+                        v-model:value="item.name"
+                        placeholder="或手动输入名称"
+                        size="small"
+                        :disabled="!!item.warehouse_id"
+                      />
+                    </div>
+                  </td>
+                  <td>
+                    <n-select v-model:value="item.type" :options="itemTypeOptions" size="small" style="width:100px" :disabled="!!item.warehouse_id" />
+                  </td>
+                  <td><n-input-number v-model:value="item.quantity" :min="1" size="small" style="width:120px" /></td>
+                  <td><n-input-number v-model:value="item.unit_price" :min="0" size="small" style="width:130px" :disabled="!!item.warehouse_id" /></td>
+                  <td>
+                    <div class="row-actions">
+                      <button class="icon-btn danger" title="删除" @click="removeExpenseItem(item.client_id)">🗑</button>
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+            <div v-else class="empty-hint">
+              暂无支出项，点击上方「新增支出」或使用「AI录入」
+            </div>
+          </div>
 
-    <n-card class="card" title="AI登记到当前草稿">
-      <n-space vertical>
-        <n-space wrap>
-          <n-select
-            v-model:value="ai.providerId"
-            :options="providerOptions"
-            placeholder="选择AI Provider"
-            style="min-width: 220px"
-          />
-          <n-button :loading="ai.loading" @click="parseWithAi">AI解析并追加Loot</n-button>
-        </n-space>
-        <n-input
-          v-model:value="ai.inputText"
-          type="textarea"
-          placeholder="粘贴原始Loot文本"
-          :autosize="{ minRows: 4, maxRows: 10 }"
-        />
-        <label class="upload-label">
-          <input type="file" accept="image/*" @change="onAiImage" />
-          上传图片 (可选)
-        </label>
-        <pre v-if="ai.lastRaw" class="raw-output">{{ ai.lastRaw }}</pre>
-      </n-space>
-    </n-card>
+          <!-- Expense Notes -->
+          <div class="ornate-frame notes-section">
+            <h3 class="section-title">📝 备注</h3>
+            <n-input
+              v-model:value="expenseNote"
+              type="textarea"
+              placeholder="支出备注（会写入流水记录）"
+              :autosize="{ minRows: 2, maxRows: 4 }"
+            />
+          </div>
+        </div>
+      </div>
+    </template>
+
+    <!-- ===== Modals ===== -->
+
+    <!-- AI Input Modal -->
+    <AiInputModal
+      v-model:show="aiModalShow"
+      :parse-endpoint="mode === 'expense' ? '/api/ai/parse-expense' : '/api/ai/parse-loot'"
+      :expense-context="mode === 'expense' ? inventoryContext : ''"
+      :warehouse-items="mode === 'expense' ? warehouseItems : []"
+      @confirm="onAiConfirm"
+    />
+
+    <!-- Split Quantity Modal -->
+    <SplitQuantityModal
+      v-model:show="splitModalShow"
+      :item-name="splitModalItem?.name || ''"
+      :max-quantity="splitModalMaxQty"
+      @confirm="onSplitConfirm"
+    />
+
+    <!-- Item Detail Edit Modal -->
+    <ItemEditModal
+      v-model:show="itemEditShow"
+      :item="itemEditData"
+      @save="onItemEditSave"
+    />
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref, watch } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import {
-  NCard,
-  NSpace,
   NButton,
   NSelect,
-  NTable,
   NCheckbox,
   NInput,
   NInputNumber,
-  NAlert,
-  NAvatar,
-  NTag,
-  NEmpty,
+  NRadioGroup,
+  NRadioButton,
   useMessage
 } from 'naive-ui';
 import { apiRequest } from '../utils/api';
+import AiInputModal from '../components/AiInputModal.vue';
+import SplitQuantityModal from '../components/SplitQuantityModal.vue';
+import ItemEditModal from '../components/ItemEditModal.vue';
 
 const message = useMessage();
-const draftKey = 'loot-register-draft-v1';
+
+// Separate draft keys for each mode
+const lootDraftKey = 'loot-register-draft-loot-v3';
+const expenseDraftKey = 'loot-register-draft-expense-v3';
+
+const mode = ref('loot');
 
 const itemTypeOptions = [
   { label: '装备', value: '装备' },
   { label: '药水', value: '药水' },
   { label: '卷轴', value: '卷轴' },
+  { label: '金钱', value: '金钱' },
   { label: '其他', value: '其他' }
 ];
 
 const slotOptions = [
-  '主手',
-  '副手',
-  '盔甲',
-  '盾牌',
-  '披风',
-  '腰带',
-  '头环',
-  '头部',
-  '护符',
-  '戒指1',
-  '戒指2',
-  '腕部',
-  '胸部',
-  '躯体',
-  '眼睛',
-  '脚部',
-  '手套',
-  '手臂',
-  '奇物'
+  '主手', '副手', '盔甲', '盾牌', '披风', '腰带', '头环', '头部',
+  '护符', '戒指1', '戒指2', '腕部', '胸部', '躯体', '眼睛', '脚部', '手套', '手臂', '奇物'
 ].map((x) => ({ label: x, value: x }));
 
 const ruleOptions = [
-  { label: '平均分', value: 'average' },
-  { label: '按价值', value: 'value' },
-  { label: '按角色权重', value: 'weight' },
-  { label: '随机', value: 'random' },
-  { label: '轮流', value: 'round' }
+  { label: '⚖ 平均分', value: 'average' },
+  { label: '💰 按价值', value: 'value' },
+  { label: '⚔ 按角色权重', value: 'weight' },
+  { label: '🎲 随机', value: 'random' },
+  { label: '🔄 轮流', value: 'round' }
 ];
 
-const autoRule = ref('average');
-const lootItems = ref([]);
-const goldItems = ref([]);
-const note = ref('');
-const memoText = ref('');
+// ======================== SHARED STATE ========================
 const plCharacters = ref([]);
-const providers = ref([]);
 const publishing = ref(false);
-const draggingClientId = ref('');
+const warehouseItems = ref([]);
 
-const ai = reactive({
-  providerId: '',
-  inputText: '',
-  imageDataUrl: '',
-  lastRaw: '',
-  loading: false
-});
+// AI modal
+const aiModalShow = ref(false);
+const inventoryContext = ref('');
 
-const providerOptions = computed(() =>
-  providers.value.map((x) => ({
-    label: `${x.name}${x.is_default ? ' (默认)' : ''}`,
-    value: x.id
-  }))
-);
+// Split modal
+const splitModalShow = ref(false);
+const splitModalItem = ref(null);
+const splitModalMaxQty = ref(1);
+const splitPendingTarget = ref('');
 
+// Item edit modal
+const itemEditShow = ref(false);
+const itemEditData = ref(null);
+
+// Drag state (loot mode only)
+const draggingItem = ref(null);
+const draggingSource = ref('');
+const dragOverCharId = ref('');
+const poolDragOver = ref(false);
+
+// ======================== LOOT MODE STATE ========================
+const lootItems = ref([]);
+const lootNote = ref('');
+const lootMemoText = ref('');
+const lootAutoRule = ref('average');
+
+// ======================== EXPENSE MODE STATE ========================
+const expenseItems = ref([]);
+const expenseNote = ref('');
+let expenseSeqCounter = 1;
+
+// ======================== UTILS ========================
 function uid() {
   return `draft_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`;
 }
 
+function nextExpenseSeq() {
+  return expenseSeqCounter++;
+}
+
+// ======================== LOOT MODE FUNCTIONS ========================
 function newLootItem() {
   return {
     client_id: uid(),
@@ -260,24 +402,31 @@ function newLootItem() {
     weight: 0,
     description: '',
     display_description: '',
-    allocations: []
+    allocated_to: ''
   };
 }
 
-function newGoldItem() {
-  return {
-    client_id: uid(),
-    label: 'GP',
-    amount: 0
-  };
+const lootUnallocatedItems = computed(() =>
+  lootItems.value.filter((x) => !x.allocated_to)
+);
+
+function getCharAllocations(characterId) {
+  return lootItems.value
+    .filter((x) => x.allocated_to === characterId)
+    .map((x) => ({
+      key: x.client_id,
+      client_id: x.client_id,
+      name: x.name,
+      quantity: x.quantity,
+      unit_price: x.unit_price,
+      type: x.type
+    }));
 }
 
-function allocated(item) {
-  return (item.allocations || []).reduce((sum, x) => sum + Number(x.quantity || 0), 0);
-}
-
-function remaining(item) {
-  return Math.max(0, Number(item.quantity || 0) - allocated(item));
+function charAllocValue(characterId) {
+  return lootItems.value
+    .filter((x) => x.allocated_to === characterId)
+    .reduce((sum, x) => sum + (x.quantity * x.unit_price), 0);
 }
 
 function addLootItem() {
@@ -288,153 +437,118 @@ function removeLootItem(clientId) {
   lootItems.value = lootItems.value.filter((x) => x.client_id !== clientId);
 }
 
-function addGoldItem() {
-  goldItems.value.push(newGoldItem());
+// Drag & Drop (loot mode)
+function onDragStartFromPool(item, event) {
+  draggingItem.value = item;
+  draggingSource.value = 'pool';
+  event.dataTransfer.effectAllowed = 'move';
 }
 
-function removeGoldItem(clientId) {
-  goldItems.value = goldItems.value.filter((x) => x.client_id !== clientId);
+function onDragStartFromChar(alloc, characterId, event) {
+  const item = lootItems.value.find((x) => x.client_id === alloc.client_id);
+  draggingItem.value = item || null;
+  draggingSource.value = `char:${characterId}`;
+  event.dataTransfer.effectAllowed = 'move';
 }
 
-function onDragStart(item) {
-  draggingClientId.value = item.client_id;
+function onDragEnd() {
+  draggingItem.value = null;
+  draggingSource.value = '';
+  dragOverCharId.value = '';
+  poolDragOver.value = false;
 }
 
-function onDrop(characterId) {
-  if (!draggingClientId.value) {
+function onDropToCharacter(characterId) {
+  dragOverCharId.value = '';
+  if (!draggingItem.value) return;
+  if (draggingItem.value.allocated_to === characterId) return;
+
+  const item = draggingItem.value;
+  if (item.quantity > 1 && draggingSource.value === 'pool') {
+    splitModalItem.value = item;
+    splitModalMaxQty.value = item.quantity;
+    splitPendingTarget.value = characterId;
+    splitModalShow.value = true;
     return;
   }
 
-  const item = lootItems.value.find((x) => x.client_id === draggingClientId.value);
-  if (!item) {
-    return;
-  }
-
-  const left = remaining(item);
-  if (left <= 0) {
-    message.warning('该Loot项已无剩余可分配');
-    return;
-  }
-
-  assignItem(item, characterId, left, true);
-  draggingClientId.value = '';
+  item.allocated_to = characterId;
+  draggingItem.value = null;
+  draggingSource.value = '';
 }
 
-function assignItem(item, characterId, quantity, replace = false) {
-  const allocs = item.allocations || [];
-  if (replace) {
-    item.allocations = [{ characterId, quantity }];
-    return;
-  }
+function onDropToPool() {
+  poolDragOver.value = false;
+  if (!draggingItem.value) return;
+  if (!draggingItem.value.allocated_to) return;
+  draggingItem.value.allocated_to = '';
+  draggingItem.value = null;
+  draggingSource.value = '';
+}
 
-  const found = allocs.find((x) => x.characterId === characterId);
-  if (found) {
-    found.quantity += quantity;
+function onSplitConfirm(splitQty) {
+  if (!splitModalItem.value || !splitPendingTarget.value) return;
+  const item = splitModalItem.value;
+  const targetChar = splitPendingTarget.value;
+
+  if (splitQty >= item.quantity) {
+    item.allocated_to = targetChar;
   } else {
-    allocs.push({ characterId, quantity });
+    item.quantity -= splitQty;
+    lootItems.value.push({
+      ...item,
+      client_id: uid(),
+      quantity: splitQty,
+      allocated_to: targetChar
+    });
   }
 
-  item.allocations = allocs;
+  splitModalItem.value = null;
+  splitPendingTarget.value = '';
+  draggingItem.value = null;
+  draggingSource.value = '';
 }
 
-function assignRemaining(item) {
-  if (!plCharacters.value.length) {
-    message.warning('暂无PL角色可分配');
-    return;
-  }
-
-  const left = remaining(item);
-  if (left <= 0) {
-    message.warning('没有剩余数量可分配');
-    return;
-  }
-
-  const first = plCharacters.value[0].id;
-  assignItem(item, first, left, false);
-}
-
-function characterAllocTags(characterId) {
-  const tags = [];
-  for (const item of lootItems.value) {
-    for (const alloc of item.allocations || []) {
-      if (alloc.characterId === characterId && Number(alloc.quantity) > 0) {
-        tags.push({
-          key: `${item.client_id}_${characterId}`,
-          text: `${item.name || '未命名'} x${alloc.quantity}`
-        });
-      }
-    }
-  }
-  return tags;
-}
-
-function serializeDraft() {
-  return {
-    lootItems: lootItems.value,
-    goldItems: goldItems.value,
-    note: note.value,
-    memoText: memoText.value,
-    autoRule: autoRule.value
-  };
-}
-
-function loadDraft() {
-  const text = localStorage.getItem(draftKey);
-  if (!text) {
-    return false;
-  }
-
-  try {
-    const parsed = JSON.parse(text);
-    lootItems.value = Array.isArray(parsed.lootItems) ? parsed.lootItems : [];
-    goldItems.value = Array.isArray(parsed.goldItems) ? parsed.goldItems : [];
-    note.value = parsed.note || '';
-    memoText.value = parsed.memoText || '';
-    autoRule.value = parsed.autoRule || 'average';
-    return true;
-  } catch (_) {
-    return false;
+function deallocate(alloc, characterId) {
+  const item = lootItems.value.find((x) => x.client_id === alloc.client_id);
+  if (!item) return;
+  const poolItem = lootUnallocatedItems.value.find(
+    (x) => x.name === item.name && x.type === item.type && x.unit_price === item.unit_price
+  );
+  if (poolItem) {
+    poolItem.quantity += item.quantity;
+    lootItems.value = lootItems.value.filter((x) => x.client_id !== item.client_id);
+  } else {
+    item.allocated_to = '';
   }
 }
 
-function clearDraft() {
-  lootItems.value = [];
-  goldItems.value = [];
-  note.value = '';
-  memoText.value = '';
-  autoRule.value = 'average';
-  localStorage.removeItem(draftKey);
-  message.success('草稿已清空');
+// Item Edit
+function openItemEdit(item) {
+  itemEditData.value = { ...item };
+  itemEditShow.value = true;
 }
 
-async function loadCharacters() {
-  const rows = await apiRequest('/api/characters');
-  plCharacters.value = rows.filter((x) => x.role === 'PL');
-}
-
-async function loadProviders() {
-  try {
-    providers.value = await apiRequest('/api/ai/providers');
-    if (!ai.providerId && providers.value.length) {
-      ai.providerId = providers.value[0].id;
-    }
-  } catch (_) {
-    providers.value = [];
+function onItemEditSave(data) {
+  const item = lootItems.value.find((x) => x.client_id === data.client_id);
+  if (item) {
+    Object.assign(item, data);
   }
+  itemEditShow.value = false;
 }
 
+// Auto Assign (loot mode)
 async function autoAssign() {
-  const selected = lootItems.value.filter((x) => x.selected);
+  const selected = lootUnallocatedItems.value.filter((x) => x.selected);
   if (!selected.length) {
-    message.warning('请先勾选要自动分配的Loot项');
+    message.warning('请先勾选要自动分配的物品');
     return;
   }
-
   try {
     const res = await apiRequest('/api/loot-records/auto-assign', {
       method: 'POST',
       body: {
-        rule: autoRule.value,
+        rule: lootAutoRule.value,
         lootItems: selected.map((x) => ({
           client_id: x.client_id,
           name: x.name,
@@ -443,77 +557,103 @@ async function autoAssign() {
         }))
       }
     });
-
     for (const assign of res.assignments || []) {
       const item = lootItems.value.find((x) => x.client_id === assign.client_id);
-      if (!item) {
-        continue;
+      if (!item) continue;
+      const allocs = assign.allocations || [];
+      if (allocs.length === 1) {
+        item.allocated_to = allocs[0].characterId;
+        item.quantity = Number(allocs[0].quantity || item.quantity);
+      } else if (allocs.length > 1) {
+        const first = allocs[0];
+        item.allocated_to = first.characterId;
+        item.quantity = Number(first.quantity || 1);
+        for (let i = 1; i < allocs.length; i++) {
+          lootItems.value.push({
+            ...item,
+            client_id: uid(),
+            allocated_to: allocs[i].characterId,
+            quantity: Number(allocs[i].quantity || 1)
+          });
+        }
       }
-      item.allocations = (assign.allocations || []).map((x) => ({
-        characterId: x.characterId,
-        quantity: Number(x.quantity || 0)
-      }));
     }
-
-    message.success('已生成自动分配草稿，可继续拖动调整');
+    message.success('已生成自动分配，可拖动调整');
   } catch (error) {
     message.error(error.message || '自动分配失败');
   }
 }
 
+// Publish Loot
 async function publishLoot() {
-  if (!lootItems.value.length) {
-    message.warning('请先添加Loot项');
+  const allItems = lootItems.value;
+  if (!allItems.length) {
+    message.warning('请先添加物品');
     return;
   }
-
-  for (const item of lootItems.value) {
+  for (const item of allItems) {
     if (!item.name) {
-      message.warning('存在未填写名称的Loot项');
+      message.warning('存在未填写名称的物品');
       return;
     }
     if (Number(item.quantity || 0) <= 0) {
-      message.warning(`Loot项 ${item.name} 数量必须大于0`);
-      return;
-    }
-    if (allocated(item) > Number(item.quantity || 0)) {
-      message.warning(`Loot项 ${item.name} 分配数量超过总数`);
+      message.warning(`物品 ${item.name} 数量必须大于0`);
       return;
     }
   }
-
   publishing.value = true;
   try {
+    const publishItems = [];
+    for (const item of allItems) {
+      const existing = publishItems.find(
+        (x) => x.name === item.name && x.type === item.type && x.unit_price === item.unit_price && !item.allocated_to && !x.allocations.length
+      );
+      if (existing && !item.allocated_to && !existing.allocations.length) {
+        existing.quantity += item.quantity;
+      } else if (item.allocated_to) {
+        const existingAlloc = publishItems.find(
+          (x) => x.name === item.name && x.type === item.type && x.unit_price === item.unit_price
+        );
+        if (existingAlloc) {
+          const foundAlloc = existingAlloc.allocations.find((a) => a.characterId === item.allocated_to);
+          if (foundAlloc) {
+            foundAlloc.quantity += item.quantity;
+          } else {
+            existingAlloc.allocations.push({ characterId: item.allocated_to, quantity: item.quantity });
+          }
+          existingAlloc.quantity += item.quantity;
+        } else {
+          publishItems.push({
+            name: item.name, type: item.type, slot: item.slot,
+            quantity: item.quantity, unit_price: Number(item.unit_price || 0),
+            weight: Number(item.weight || 0), description: item.description || '',
+            display_description: item.display_description || '',
+            allocations: [{ characterId: item.allocated_to, quantity: item.quantity }]
+          });
+        }
+      } else {
+        publishItems.push({
+          name: item.name, type: item.type, slot: item.slot,
+          quantity: item.quantity, unit_price: Number(item.unit_price || 0),
+          weight: Number(item.weight || 0), description: item.description || '',
+          display_description: item.display_description || '',
+          allocations: []
+        });
+      }
+    }
+
     await apiRequest('/api/loot-records/publish', {
       method: 'POST',
       body: {
-        lootItems: lootItems.value.map((x) => ({
-          name: x.name,
-          type: x.type,
-          slot: x.slot,
-          quantity: Number(x.quantity || 0),
-          unit_price: Number(x.unit_price || 0),
-          weight: Number(x.weight || 0),
-          description: x.description || '',
-          display_description: x.display_description || '',
-          allocations: (x.allocations || []).map((a) => ({
-            characterId: a.characterId,
-            quantity: Number(a.quantity || 0)
-          }))
-        })),
-        goldItems: goldItems.value.map((x) => ({
-          label: x.label,
-          amount: Number(x.amount || 0)
-        })),
-        distribution: {
-          rule: autoRule.value
-        },
-        note: note.value,
-        memo_text: memoText.value
+        lootItems: publishItems,
+        goldItems: [],
+        distribution: { rule: lootAutoRule.value },
+        note: lootNote.value,
+        memo_text: lootMemoText.value,
+        mode: 'loot'
       }
     });
-
-    clearDraft();
+    clearLootDraft();
     message.success('Loot发布成功');
   } catch (error) {
     message.error(error.message || '发布失败');
@@ -522,152 +662,428 @@ async function publishLoot() {
   }
 }
 
-function fileToDataUrl(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result || ''));
-    reader.onerror = () => reject(new Error('读取图片失败'));
-    reader.readAsDataURL(file);
-  });
+// ======================== EXPENSE MODE FUNCTIONS ========================
+
+// Warehouse select options for expense mode
+const warehouseSelectOptions = computed(() =>
+  warehouseItems.value.map((x, idx) => ({
+    label: `#${idx + 1} ${x.name} (${x.type}) ×${x.quantity} ${x.unit_price}gp`,
+    value: x.id
+  }))
+);
+
+function newExpenseItem() {
+  return {
+    client_id: uid(),
+    seq: nextExpenseSeq(),
+    name: '',
+    type: '其他',
+    quantity: 1,
+    unit_price: 0,
+    warehouse_id: ''
+  };
 }
 
-async function onAiImage(event) {
-  const file = event.target.files?.[0];
-  if (!file) {
+function addExpenseItem() {
+  expenseItems.value.push(newExpenseItem());
+}
+
+function removeExpenseItem(clientId) {
+  expenseItems.value = expenseItems.value.filter((x) => x.client_id !== clientId);
+}
+
+function onSelectWarehouseItem(expenseItem, warehouseId) {
+  if (!warehouseId) {
+    expenseItem.warehouse_id = '';
+    expenseItem.name = '';
+    expenseItem.type = '其他';
+    expenseItem.unit_price = 0;
     return;
   }
-
-  try {
-    ai.imageDataUrl = await fileToDataUrl(file);
-    message.success('图片已加载');
-  } catch (error) {
-    message.error(error.message || '图片处理失败');
-  } finally {
-    event.target.value = '';
+  const wItem = warehouseItems.value.find((x) => x.id === warehouseId);
+  if (wItem) {
+    expenseItem.warehouse_id = wItem.id;
+    expenseItem.name = wItem.name;
+    expenseItem.type = wItem.type;
+    expenseItem.unit_price = Number(wItem.unit_price || 0);
+    expenseItem.quantity = Math.min(expenseItem.quantity || 1, Number(wItem.quantity));
   }
 }
 
-async function parseWithAi() {
-  if (!ai.inputText && !ai.imageDataUrl) {
-    message.warning('请输入文本或图片');
+// Publish Expense
+async function publishExpense() {
+  if (!expenseItems.value.length) {
+    message.warning('请先添加支出项');
     return;
   }
-
-  ai.loading = true;
+  for (const item of expenseItems.value) {
+    if (!item.name) {
+      message.warning('存在未填写名称的支出项');
+      return;
+    }
+    if (Number(item.quantity || 0) <= 0) {
+      message.warning(`支出项 ${item.name} 数量必须大于0`);
+      return;
+    }
+  }
+  publishing.value = true;
   try {
-    const data = await apiRequest('/api/ai/parse-loot', {
+    const publishItems = expenseItems.value.map((x) => ({
+      name: x.name,
+      type: x.type,
+      quantity: Math.abs(Number(x.quantity || 0)),
+      unit_price: Math.abs(Number(x.unit_price || 0)),
+      warehouse_id: x.warehouse_id || ''
+    }));
+
+    await apiRequest('/api/loot-records/publish', {
       method: 'POST',
       body: {
-        providerId: ai.providerId || null,
-        inputText: ai.inputText,
-        imageDataUrl: ai.imageDataUrl
+        lootItems: publishItems,
+        goldItems: [],
+        distribution: {},
+        note: expenseNote.value,
+        memo_text: '',
+        mode: 'expense'
       }
     });
-
-    ai.lastRaw = data.raw_text || '';
-    const parsedItems = data.parsed?.loot_items || [];
-    const parsedGold = data.parsed?.gold_items || [];
-
-    if (parsedItems.length) {
-      for (const x of parsedItems) {
-        lootItems.value.push({
-          client_id: uid(),
-          selected: true,
-          name: x.name || '',
-          type: x.type || '其他',
-          slot: x.slot || null,
-          quantity: Number(x.quantity || 1),
-          unit_price: Number(x.unit_price || 0),
-          weight: Number(x.weight || 0),
-          description: x.description || '',
-          display_description: x.display_description || '',
-          allocations: []
-        });
-      }
-    }
-
-    if (parsedGold.length) {
-      for (const x of parsedGold) {
-        goldItems.value.push({
-          client_id: uid(),
-          label: x.label || 'GP',
-          amount: Number(x.amount || 0)
-        });
-      }
-    }
-
-    note.value = note.value || data.parsed?.note || '';
-    message.success('AI内容已追加到当前草稿');
+    clearExpenseDraft();
+    await loadWarehouseItems();
+    message.success('支出记录完成');
   } catch (error) {
-    message.error(error.message || 'AI解析失败');
+    message.error(error.message || '支出失败');
   } finally {
-    ai.loading = false;
+    publishing.value = false;
   }
 }
 
+// ======================== AI ========================
+async function openAiModal() {
+  if (mode.value === 'expense') {
+    try {
+      const items = await apiRequest('/api/items');
+      warehouseItems.value = items;
+      inventoryContext.value = items
+        .map((x, idx) => `#${idx + 1} ${x.name} ×${x.quantity}`)
+        .join('\n');
+    } catch (_) {
+      inventoryContext.value = '';
+    }
+  } else {
+    inventoryContext.value = '';
+  }
+  aiModalShow.value = true;
+}
+
+function onAiConfirm(result) {
+  const items = result.items || [];
+  if (mode.value === 'expense') {
+    for (const x of items) {
+      const seq = Number(x.seq || 0);
+      const qty = Math.abs(Number(x.quantity || 1));
+      if (seq > 0 && seq <= warehouseItems.value.length) {
+        const wItem = warehouseItems.value[seq - 1];
+        const newItem = newExpenseItem();
+        newItem.warehouse_id = wItem.id;
+        newItem.name = wItem.name;
+        newItem.type = wItem.type || '其他';
+        newItem.quantity = Math.min(qty, Number(wItem.quantity || qty));
+        newItem.unit_price = Number(wItem.unit_price || 0);
+        expenseItems.value.push(newItem);
+      }
+    }
+    if (result.note && !expenseNote.value) {
+      expenseNote.value = result.note;
+    }
+  } else {
+    for (const x of items) {
+      lootItems.value.push({
+        client_id: uid(),
+        selected: true,
+        name: x.name || '',
+        type: x.type || '其他',
+        slot: x.slot || null,
+        quantity: Number(x.quantity || 1),
+        unit_price: Number(x.unit_price || 0),
+        weight: Number(x.weight || 0),
+        description: x.description || '',
+        display_description: x.display_description || '',
+        allocated_to: ''
+      });
+    }
+    if (result.note && !lootNote.value) {
+      lootNote.value = result.note;
+    }
+  }
+  if (items.length) {
+    message.success('AI内容已追加到草稿');
+  }
+}
+
+// ======================== DRAFT PERSISTENCE ========================
+
+// Loot draft
+function serializeLootDraft() {
+  return {
+    lootItems: lootItems.value,
+    note: lootNote.value,
+    memoText: lootMemoText.value,
+    autoRule: lootAutoRule.value
+  };
+}
+
+function loadLootDraft() {
+  const text = localStorage.getItem(lootDraftKey);
+  if (!text) return false;
+  try {
+    const parsed = JSON.parse(text);
+    lootItems.value = Array.isArray(parsed.lootItems) ? parsed.lootItems : [];
+    lootNote.value = parsed.note || '';
+    lootMemoText.value = parsed.memoText || '';
+    lootAutoRule.value = parsed.autoRule || 'average';
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+function clearLootDraft() {
+  lootItems.value = [];
+  lootNote.value = '';
+  lootMemoText.value = '';
+  lootAutoRule.value = 'average';
+  localStorage.removeItem(lootDraftKey);
+  message.success('Loot草稿已清空');
+}
+
+// Expense draft
+function serializeExpenseDraft() {
+  return {
+    expenseItems: expenseItems.value,
+    note: expenseNote.value,
+    seqCounter: expenseSeqCounter
+  };
+}
+
+function loadExpenseDraft() {
+  const text = localStorage.getItem(expenseDraftKey);
+  if (!text) return false;
+  try {
+    const parsed = JSON.parse(text);
+    expenseItems.value = Array.isArray(parsed.expenseItems) ? parsed.expenseItems : [];
+    expenseNote.value = parsed.note || '';
+    expenseSeqCounter = parsed.seqCounter || (expenseItems.value.length + 1);
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+function clearExpenseDraft() {
+  expenseItems.value = [];
+  expenseNote.value = '';
+  expenseSeqCounter = 1;
+  localStorage.removeItem(expenseDraftKey);
+  message.success('支出草稿已清空');
+}
+
+// ======================== DATA LOADING ========================
+async function loadCharacters() {
+  const rows = await apiRequest('/api/characters');
+  plCharacters.value = rows.filter((x) => x.role === 'PL');
+}
+
+async function loadWarehouseItems() {
+  try {
+    warehouseItems.value = await apiRequest('/api/items');
+  } catch (_) {
+    warehouseItems.value = [];
+  }
+}
+
+// ======================== WATCHERS ========================
 watch(
-  () => serializeDraft(),
+  () => serializeLootDraft(),
   (value) => {
-    localStorage.setItem(draftKey, JSON.stringify(value));
+    localStorage.setItem(lootDraftKey, JSON.stringify(value));
   },
   { deep: true }
 );
 
+watch(
+  () => serializeExpenseDraft(),
+  (value) => {
+    localStorage.setItem(expenseDraftKey, JSON.stringify(value));
+  },
+  { deep: true }
+);
+
+watch(mode, (newMode) => {
+  if (newMode === 'expense') {
+    loadWarehouseItems();
+  }
+});
+
 onMounted(async () => {
-  const loaded = loadDraft();
-  await Promise.all([loadCharacters(), loadProviders()]);
-  if (!loaded && !lootItems.value.length) {
+  const lootLoaded = loadLootDraft();
+  loadExpenseDraft();
+  await loadCharacters();
+  if (!lootLoaded && !lootItems.value.length) {
     addLootItem();
+  }
+  if (mode.value === 'expense') {
+    await loadWarehouseItems();
   }
 });
 </script>
 
 <style scoped>
+.loot-page { position: relative; }
+
+.mode-switch {
+  margin-bottom: 16px;
+  display: flex;
+  justify-content: center;
+}
+
 .loot-grid {
   display: grid;
-  grid-template-columns: 2fr 1fr;
-  gap: 16px;
+  grid-template-columns: 1fr 380px;
+  gap: 20px;
+  align-items: start;
+}
+@media (max-width: 1100px) {
+  .loot-grid { grid-template-columns: 1fr; }
 }
 
-@media (max-width: 1080px) {
-  .loot-grid {
-    grid-template-columns: 1fr;
-  }
+.expense-layout {
+  max-width: 1000px;
 }
 
+/* Toolbar */
+.toolbar-bar { margin-bottom: 16px; }
+.toolbar-row {
+  display: flex; flex-wrap: wrap; gap: 8px;
+  align-items: center; margin-bottom: 6px;
+}
+.spacer { flex: 1; }
+.toolbar-hint { font-size: 12px; color: var(--text-secondary); opacity: 0.7; }
+.danger-text { color: var(--danger) !important; }
+
+/* Pool area */
+.pool-area { padding: 12px; margin-bottom: 16px; overflow-x: auto; transition: all 0.3s; }
+.pool-highlight { border-color: var(--gold) !important; background: var(--gold-glow) !important; }
+.pool-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.pool-count { font-size: 12px; color: var(--text-secondary); }
+
+/* Table */
+.loot-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.loot-table thead th {
+  text-align: left; padding: 8px 6px;
+  font-family: 'Cinzel', 'LXGW WenKai', serif;
+  color: var(--gold); font-size: 12px; letter-spacing: 0.5px;
+  border-bottom: 1px solid var(--border); white-space: nowrap;
+}
+.loot-table tbody td {
+  padding: 6px; border-bottom: 1px solid var(--border-dim); vertical-align: middle;
+}
+.loot-row { transition: background 0.2s; cursor: grab; }
+.loot-row:hover { background: var(--gold-glow); }
+.loot-row.dragging { opacity: 0.5; background: var(--arcane-glow); }
+.type-slot-cell { display: flex; flex-direction: column; gap: 4px; }
+.row-actions { display: flex; gap: 4px; }
+
+.icon-btn {
+  background: transparent; border: 1px solid var(--border);
+  color: var(--text-primary); width: 28px; height: 28px;
+  border-radius: var(--radius); cursor: pointer; font-size: 13px;
+  display: inline-grid; place-items: center; transition: all 0.2s;
+}
+.icon-btn:hover { border-color: var(--gold); background: var(--gold-glow); }
+.icon-btn.danger:hover { border-color: var(--danger); background: var(--danger-soft); }
+
+.empty-hint {
+  text-align: center; padding: 24px; color: var(--text-secondary); font-style: italic;
+}
+
+/* Notes */
+.notes-section { margin-bottom: 16px; }
+
+/* Sidebar */
+.loot-sidebar { display: flex; flex-direction: column; gap: 16px; }
+
+/* Drop Zone */
+.drop-zone-panel { padding: 16px; }
+.drop-cards { display: flex; flex-direction: column; gap: 10px; }
 .drop-card {
-  border: 2px dashed #94a3b8;
-  border-radius: 12px;
-  padding: 10px;
-  background: #f8fafc;
+  border: 2px dashed var(--border); border-radius: 10px;
+  padding: 12px; transition: all 0.3s; background: var(--bg-card);
+}
+.drop-card:hover,
+.drop-card.drag-over {
+  border-color: var(--char-color, var(--gold));
+  background: color-mix(in srgb, var(--char-color, var(--gold)) 8%, transparent);
+  box-shadow: 0 0 16px color-mix(in srgb, var(--char-color, var(--gold)) 20%, transparent);
 }
 
-.section-subtitle {
-  margin: 0 0 8px;
+.dc-header { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.dc-avatar {
+  width: 36px; height: 36px; border-radius: 50%; border: 2px solid var(--gold);
+  overflow: hidden; display: grid; place-items: center; background: var(--bg-elevated); flex-shrink: 0;
+}
+.dc-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.avatar-letter {
+  font-family: 'Cinzel', serif; font-size: 16px; font-weight: 700; color: var(--gold);
+}
+.dc-name { font-weight: 600; color: var(--text-bright); font-size: 15px; flex: 1; }
+.dc-value { font-size: 13px; color: var(--gold); font-weight: 600; }
+
+.dc-items { display: flex; flex-direction: column; gap: 4px; }
+.alloc-item {
+  display: flex; align-items: center; gap: 6px;
+  padding: 5px 10px; border-radius: 8px; font-size: 12px;
+  border: 1px solid; cursor: grab; transition: all 0.2s;
+}
+.alloc-item:hover { opacity: 0.85; }
+.ai-name { flex: 1; font-weight: 500; }
+.ai-qty { color: var(--gold); }
+.ai-price { color: var(--text-secondary); font-size: 11px; }
+.ai-remove {
+  background: transparent; border: none; color: var(--text-secondary);
+  cursor: pointer; font-size: 12px; padding: 2px 4px; border-radius: 4px;
+  transition: all 0.2s;
+}
+.ai-remove:hover { color: var(--danger); background: var(--danger-soft); }
+.empty-alloc {
+  font-size: 12px; color: var(--text-secondary); opacity: 0.5;
+  font-style: italic; padding: 4px;
 }
 
-.upload-label {
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  border: 1px dashed #94a3b8;
-  padding: 4px 10px;
-  border-radius: 10px;
-  font-size: 12px;
-  color: #334e68;
+/* Expense mode specific */
+.expense-seq {
+  font-family: 'Cinzel', serif;
+  color: var(--gold);
+  font-weight: 700;
+  text-align: center;
+}
+.expense-name-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
-.upload-label input {
-  display: none;
+/* Ambient particles */
+.ambient-particles { position: fixed; inset: 0; pointer-events: none; z-index: 0; overflow: hidden; }
+.particle {
+  position: absolute; bottom: -10px; width: 3px; height: 3px; border-radius: 50%;
+  background: hsla(var(--hue, 45), 70%, 60%, 0.5);
+  box-shadow: 0 0 6px hsla(var(--hue, 45), 70%, 60%, 0.3);
+  animation: particleFloat linear infinite;
 }
-
-.raw-output {
-  margin: 0;
-  max-height: 220px;
-  overflow: auto;
-  background: #f8fafc;
-  border: 1px solid #d9e2ec;
-  border-radius: 10px;
-  padding: 10px;
+@keyframes particleFloat {
+  0% { transform: translateY(0) scale(1); opacity: 0; }
+  10% { opacity: 0.6; }
+  90% { opacity: 0.3; }
+  100% { transform: translateY(-100vh) scale(0.3); opacity: 0; }
 }
 </style>

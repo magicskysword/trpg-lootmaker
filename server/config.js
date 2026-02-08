@@ -25,7 +25,8 @@ module.exports = {
   tempDir,
   imageDir,
   frontendDistDir,
-  port: Number(process.env.PORT || 3000),
+  // 端口优先级：APP_PORT（项目统一） > PORT（常见PaaS注入） > 3000
+  port: Number(process.env.APP_PORT || process.env.PORT || 3000),
   sessionSecret: process.env.SESSION_SECRET || 'dev-session-secret-change-me',
   sessionMaxAgeMs: Number(process.env.SESSION_MAX_AGE_HOURS || 8) * 60 * 60 * 1000,
   userPassword: process.env.USER_PASSWORD || 'player123',

@@ -23,7 +23,7 @@ const router = createRouter({
       children: [
         { path: '', redirect: '/dashboard' },
         { path: '/dashboard', component: DashboardPage },
-        { path: '/characters', component: CharacterDataPage },
+        { path: '/data', component: CharacterDataPage },
         { path: '/loot-register', component: LootRegisterPage },
         { path: '/cards', component: CardDisplayPage },
         { path: '/settings', component: SettingsPage }

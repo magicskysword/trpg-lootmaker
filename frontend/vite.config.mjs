@@ -1,6 +1,15 @@
 import { defineConfig } from 'vite';
 import vue from '@vitejs/plugin-vue';
 import { fileURLToPath, URL } from 'node:url';
+import path from 'node:path';
+import dotenv from 'dotenv';
+
+dotenv.config({
+  path: path.resolve(fileURLToPath(new URL('..', import.meta.url)), '.env')
+});
+
+const backendPort = Number(process.env.APP_PORT || process.env.PORT || 3000);
+const backendOrigin = `http://localhost:${backendPort}`;
 
 export default defineConfig({
   root: fileURLToPath(new URL('.', import.meta.url)),
@@ -9,11 +18,11 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/api': {
-        target: 'http://localhost:3000',
+        target: backendOrigin,
         changeOrigin: true
       },
       '/images': {
-        target: 'http://localhost:3000',
+        target: backendOrigin,
         changeOrigin: true
       }
     }

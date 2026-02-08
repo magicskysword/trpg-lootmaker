@@ -5,9 +5,10 @@ services:
     build: .
     container_name: pathfinder-lootmaker
     ports:
-      - "3000:3000"
+      - "${APP_PORT:-3000}:${APP_PORT:-3000}"
     environment:
-      PORT: 3000
+      NODE_ENV: production
+      APP_PORT: ${APP_PORT:-3000}
       USER_PASSWORD: ${USER_PASSWORD:-player123}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin123}
       SESSION_SECRET: ${SESSION_SECRET:-change-this-session-secret}

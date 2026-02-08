@@ -16,6 +16,7 @@ const itemRoutes = require('./routes/items');
 const lootRoutes = require('./routes/loot');
 const settingsRoutes = require('./routes/settings');
 const aiRoutes = require('./routes/ai');
+const transactionRoutes = require('./routes/transactions');
 
 const SQLiteStore = SQLiteStoreFactory(session);
 
@@ -65,7 +66,20 @@ async function bootstrap() {
   app.use('/api/items', requireLogin, itemRoutes);
   app.use('/api/loot-records', requireLogin, lootRoutes);
   app.use('/api/ai', requireLogin, aiRoutes);
+  app.use('/api/transactions', requireLogin, transactionRoutes);
   app.use('/api/settings', requireAdmin, settingsRoutes);
+
+  // Public campaign name endpoint (no admin required, just login)
+  app.get('/api/campaign-name', requireLogin, async (req, res, next) => {
+    try {
+      const { getDb } = require('./db');
+      const db = await getDb();
+      const row = await db.get("SELECT value FROM app_settings WHERE key = 'campaign_name'");
+      return res.json({ campaign_name: row?.value || '' });
+    } catch (error) {
+      return next(error);
+    }
+  });
 
   app.get('/api/health', (_, res) => {
     res.json({ status: 'ok', time: new Date().toISOString() });

@@ -1,314 +1,633 @@
 <template>
-  <div class="page-grid">
-    <n-card class="card" title="角色管理" :loading="loading.characters">
-      <n-space vertical size="large">
-        <n-form inline :model="characterForm">
-          <n-form-item label="角色名">
-            <n-input v-model:value="characterForm.name" placeholder="角色名称" />
-          </n-form-item>
-          <n-form-item label="身份">
-            <n-select v-model:value="characterForm.role" :options="roleOptions" style="width: 120px" />
-          </n-form-item>
-          <n-form-item label="色系">
-            <n-color-picker v-model:value="characterForm.color" size="small" />
-          </n-form-item>
-          <n-form-item label="禁用槽位警告">
-            <n-switch v-model:value="characterForm.slot_warning_disabled" />
-          </n-form-item>
-          <n-form-item>
-            <n-button type="primary" @click="saveCharacter">
-              {{ characterForm.id ? '更新角色' : '新建角色' }}
-            </n-button>
-          </n-form-item>
-          <n-form-item v-if="characterForm.id">
-            <n-button @click="resetCharacterForm">取消编辑</n-button>
-          </n-form-item>
-        </n-form>
+  <div class="data-page">
+    <h2 class="page-title">📜 总数据管理</h2>
 
-        <n-table striped>
-          <thead>
-            <tr>
-              <th>角色</th>
-              <th>身份</th>
-              <th>Buff数</th>
-              <th>物品数</th>
-              <th>操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="row in characters" :key="row.id">
-              <td>
-                <n-space align="center" size="small">
-                  <n-avatar :src="row.portrait_path" :style="{ background: row.color }">
-                    {{ row.name.slice(0, 1) }}
-                  </n-avatar>
-                  <span>{{ row.name }}</span>
-                </n-space>
-              </td>
-              <td>{{ row.role }}</td>
-              <td>{{ row.buffs?.length || 0 }}</td>
-              <td>{{ row.items?.length || 0 }}</td>
-              <td>
-                <n-space size="small">
-                  <n-button size="tiny" @click="editCharacter(row)">编辑</n-button>
-                  <label class="upload-label">
-                    <input type="file" accept="image/*" @change="uploadPortrait($event, row)" />
-                    上传立绘
-                  </label>
-                  <n-button size="tiny" type="error" tertiary @click="removeCharacter(row)">删除</n-button>
-                </n-space>
-              </td>
-            </tr>
-          </tbody>
-        </n-table>
-
-        <div>
-          <h3 class="section-subtitle">角色Buff</h3>
-          <n-space>
-            <n-select
-              v-model:value="buffForm.characterId"
-              :options="characterOptions"
-              placeholder="选择角色"
-              style="min-width: 180px"
-            />
-            <n-select
-              v-model:value="buffForm.level"
-              :options="buffLevelOptions"
-              placeholder="持续级别"
-              style="min-width: 140px"
-            />
-            <n-input v-model:value="buffForm.name" placeholder="Buff名称" style="width: 160px" />
+    <n-tabs v-model:value="activeTab" type="segment" animated>
+      <!-- ===== TAB 1: 仓库数据 ===== -->
+      <n-tab-pane name="warehouse" tab="📦 仓库数据">
+        <div class="tab-content">
+          <!-- Toolbar -->
+          <div class="action-bar">
+            <n-button type="primary" @click="openItemModal(null)">✦ 新建物品</n-button>
+            <n-button @click="aiModalShow = true; aiParseEndpoint = '/api/ai/parse-loot'">🤖 AI录入物品</n-button>
+            <div class="spacer"></div>
             <n-input
-              v-model:value="buffForm.resource_note"
-              placeholder="资源备注"
+              v-model:value="warehouseFilter.keyword"
+              placeholder="🔍 搜索名称…"
+              clearable
+              size="small"
               style="width: 180px"
             />
-            <n-button type="primary" @click="addBuff">添加Buff</n-button>
-          </n-space>
-
-          <n-space v-if="currentBuffCharacter" vertical class="buff-list">
-            <n-space
-              v-for="buff in currentBuffCharacter.buffs"
-              :key="buff.id"
-              align="center"
-              class="buff-row"
+            <n-select
+              v-model:value="warehouseFilter.type"
+              :options="typeFilterOptions"
+              size="small"
+              style="width: 120px"
+            />
+            <n-select
+              v-model:value="warehouseFilter.sort"
+              :options="sortOptions"
+              size="small"
+              style="width: 130px"
+            />
+            <n-button
+              v-if="selectedItemIds.length"
+              type="error"
+              size="small"
+              @click="batchDeleteItems"
             >
-              <n-tag type="info" round>{{ buff.level }}</n-tag>
-              <span>{{ buff.name }}</span>
-              <span class="muted">{{ buff.resource_note }}</span>
-              <n-button size="tiny" type="error" tertiary @click="removeBuff(currentBuffCharacter.id, buff.id)">
-                删除
-              </n-button>
-            </n-space>
-          </n-space>
-        </div>
-      </n-space>
-    </n-card>
-
-    <n-card class="card" title="仓库物品" :loading="loading.items">
-      <n-space vertical size="large">
-        <n-form inline>
-          <n-form-item label="名称">
-            <n-input v-model:value="itemForm.name" placeholder="物品名称" />
-          </n-form-item>
-          <n-form-item label="类型">
-            <n-select v-model:value="itemForm.type" :options="itemTypeOptions" style="width: 120px" />
-          </n-form-item>
-          <n-form-item label="槽位">
-            <n-select
-              v-model:value="itemForm.slot"
-              :options="slotOptions"
-              :disabled="itemForm.type !== '装备'"
-              style="width: 140px"
-              clearable
-            />
-          </n-form-item>
-          <n-form-item label="数量">
-            <n-input-number v-model:value="itemForm.quantity" :min="0" />
-          </n-form-item>
-          <n-form-item label="单价">
-            <n-input-number v-model:value="itemForm.unit_price" :min="0" />
-          </n-form-item>
-          <n-form-item>
-            <n-button type="primary" @click="saveItem">
-              {{ itemForm.id ? '更新物品' : '新建物品' }}
+              🗑 删除选中 ({{ selectedItemIds.length }})
             </n-button>
-          </n-form-item>
-          <n-form-item v-if="itemForm.id">
-            <n-button @click="resetItemForm">取消编辑</n-button>
-          </n-form-item>
-        </n-form>
+          </div>
 
-        <n-table striped>
-          <thead>
-            <tr>
-              <th>名称</th>
-              <th>类型/槽位</th>
-              <th>数量</th>
-              <th>已分配</th>
-              <th>剩余</th>
-              <th>拥有者</th>
-              <th>操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="row in items" :key="row.id" :style="itemRowStyle(row)">
-              <td>{{ row.name }}</td>
-              <td>{{ row.type }} <span v-if="row.slot">/ {{ row.slot }}</span></td>
-              <td>{{ row.quantity }}</td>
-              <td>{{ row.allocated_quantity }}</td>
-              <td>{{ row.remaining_quantity }}</td>
-              <td>
-                <n-space size="small" wrap>
-                  <n-tag
-                    v-for="alloc in row.allocations"
-                    :key="alloc.character_id"
-                    :color="{ color: alloc.character_color + '22', textColor: '#102a43', borderColor: alloc.character_color }"
-                    closable
-                    @close="removeAllocation(row.id, alloc.character_id)"
-                  >
-                    {{ alloc.character_name }} x{{ alloc.quantity }}
-                  </n-tag>
-                </n-space>
-              </td>
-              <td>
-                <n-space size="small">
-                  <n-button size="tiny" @click="editItem(row)">编辑</n-button>
-                  <n-button size="tiny" @click="openAllocate(row)">分配</n-button>
-                  <n-button size="tiny" type="error" tertiary @click="removeItem(row)">删除</n-button>
-                </n-space>
-              </td>
-            </tr>
-          </tbody>
-        </n-table>
-
-        <n-modal v-model:show="allocationModal" preset="card" title="分配物品" style="max-width: 480px">
-          <n-space vertical>
-            <div>物品：{{ allocationState.item?.name }}</div>
-            <n-select
-              v-model:value="allocationState.characterId"
-              :options="characterOptions"
-              placeholder="选择角色"
-            />
-            <n-input-number v-model:value="allocationState.quantity" :min="1" />
-            <n-radio-group v-model:value="allocationState.mode">
-              <n-space>
-                <n-radio value="set">覆盖设定</n-radio>
-                <n-radio value="merge">叠加分配</n-radio>
-                <n-radio value="takeover">抢占分配</n-radio>
-              </n-space>
-            </n-radio-group>
-            <n-space justify="end">
-              <n-button @click="allocationModal = false">取消</n-button>
-              <n-button type="primary" @click="submitAllocation">提交</n-button>
-            </n-space>
-          </n-space>
-        </n-modal>
-      </n-space>
-    </n-card>
-
-    <n-card class="card" title="Loot记录备忘录" :loading="loading.lootRecords">
-      <n-empty v-if="!lootRecords.length" description="暂无Loot记录" />
-      <n-space v-else vertical>
-        <div v-for="record in lootRecords" :key="record.id" class="loot-record-row">
-          <n-space justify="space-between" align="center">
-            <strong>{{ formatDate(record.created_at) }}</strong>
-            <n-tag type="info">物品 {{ record.item_snapshot.length }} 条</n-tag>
-          </n-space>
-          <div class="muted">备注：{{ record.note || '无' }}</div>
-          <n-input
-            type="textarea"
-            :value="record.memo_text"
-            @update:value="(v) => (record.memo_text = v)"
-            placeholder="可编辑备忘录（不会回写仓库）"
-          />
-          <n-button size="small" @click="saveRecordMemo(record)">保存备忘录</n-button>
+          <!-- Table -->
+          <div class="table-wrap">
+            <table class="fantasy-table items-table">
+              <thead>
+                <tr>
+                  <th style="width:36px">
+                    <n-checkbox
+                      :checked="allItemsSelected"
+                      :indeterminate="someItemsSelected"
+                      @update:checked="toggleSelectAll"
+                    />
+                  </th>
+                  <th>名称</th>
+                  <th>类型/槽位</th>
+                  <th style="width:70px">数量</th>
+                  <th style="width:80px">单价</th>
+                  <th style="width:70px">重量</th>
+                  <th>拥有者</th>
+                  <th style="width:130px">操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr
+                  v-for="row in filteredItems"
+                  :key="row.id"
+                  :class="{ 'selected-row': selectedItemIds.includes(row.id) }"
+                >
+                  <td @click.stop>
+                    <n-checkbox
+                      :checked="selectedItemIds.includes(row.id)"
+                      @update:checked="toggleSelectItem(row.id)"
+                    />
+                  </td>
+                  <td>
+                    <span
+                      v-if="editingCell.id === row.id && editingCell.field === 'name'"
+                      class="inline-edit"
+                    >
+                      <n-input
+                        v-model:value="row.name"
+                        size="small"
+                        @blur="saveInlineEdit(row)"
+                        @keydown.enter="saveInlineEdit(row)"
+                      />
+                    </span>
+                    <span v-else class="editable-cell" @click="startInlineEdit(row, 'name')">
+                      {{ row.name }}
+                    </span>
+                  </td>
+                  <td>
+                    <span class="type-badge">{{ row.type }}</span>
+                    <span v-if="row.slot" class="slot-badge">{{ row.slot }}</span>
+                  </td>
+                  <td>
+                    <span
+                      v-if="editingCell.id === row.id && editingCell.field === 'quantity'"
+                      class="inline-edit"
+                    >
+                      <n-input-number
+                        v-model:value="row.quantity"
+                        size="small" :min="0" :show-button="false"
+                        @blur="saveInlineEdit(row)"
+                        @keydown.enter="saveInlineEdit(row)"
+                      />
+                    </span>
+                    <span v-else class="editable-cell" @click="startInlineEdit(row, 'quantity')">
+                      {{ row.quantity }}
+                    </span>
+                  </td>
+                  <td>
+                    <span
+                      v-if="editingCell.id === row.id && editingCell.field === 'unit_price'"
+                      class="inline-edit"
+                    >
+                      <n-input-number
+                        v-model:value="row.unit_price"
+                        size="small" :min="0" :show-button="false"
+                        @blur="saveInlineEdit(row)"
+                        @keydown.enter="saveInlineEdit(row)"
+                      />
+                    </span>
+                    <span v-else class="editable-cell" @click="startInlineEdit(row, 'unit_price')">
+                      {{ row.unit_price }} gp
+                    </span>
+                  </td>
+                  <td>
+                    <span
+                      v-if="editingCell.id === row.id && editingCell.field === 'weight'"
+                      class="inline-edit"
+                    >
+                      <n-input-number
+                        v-model:value="row.weight"
+                        size="small" :min="0" :show-button="false"
+                        @blur="saveInlineEdit(row)"
+                        @keydown.enter="saveInlineEdit(row)"
+                      />
+                    </span>
+                    <span v-else class="editable-cell" @click="startInlineEdit(row, 'weight')">
+                      {{ row.weight }}
+                    </span>
+                  </td>
+                  <td>
+                    <div class="alloc-tags">
+                      <span
+                        v-for="alloc in row.allocations"
+                        :key="alloc.character_id"
+                        class="alloc-tag"
+                        :style="{ borderColor: alloc.character_color, background: alloc.character_color + '18' }"
+                      >
+                        {{ alloc.character_name }} ×{{ alloc.quantity }}
+                        <span class="tag-close" @click.stop="removeAllocation(row.id, alloc.character_id)">✕</span>
+                      </span>
+                    </div>
+                  </td>
+                  <td>
+                    <div class="action-btns">
+                      <button class="icon-btn" title="详细编辑" @click.stop="openItemModal(row)">📝</button>
+                      <button class="icon-btn" title="分配" @click.stop="openAllocate(row)">👤</button>
+                      <button class="icon-btn danger" title="删除" @click.stop="removeItem(row)">🗑</button>
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+            <div v-if="!filteredItems.length" class="empty-state">
+              <span class="empty-icon">📦</span>
+              <span>{{ items.length ? '无匹配结果' : '仓库空空如也，添加一些物品吧' }}</span>
+            </div>
+          </div>
         </div>
-      </n-space>
-    </n-card>
+      </n-tab-pane>
 
-    <n-card class="card" title="AI录入" :loading="loading.aiProviders">
-      <n-space vertical>
-        <n-space>
+      <!-- ===== TAB 2: 角色管理 ===== -->
+      <n-tab-pane name="characters" tab="⚔ 角色管理">
+        <div class="tab-content char-layout">
+          <!-- Left: Character List -->
+          <div class="char-list-panel">
+            <div class="char-list-header">
+              <h3 class="section-title">角色列表</h3>
+              <n-button type="primary" size="small" @click="openNewCharacterModal">✦ 新建角色</n-button>
+            </div>
+            <div class="char-list">
+              <div
+                v-for="ch in characters"
+                :key="ch.id"
+                class="char-list-item"
+                :class="{ active: selectedCharId === ch.id }"
+                :style="{ '--char-color': ch.color }"
+                @click="selectCharacter(ch)"
+              >
+                <div class="cli-avatar">
+                  <img v-if="ch.portrait_path" :src="ch.portrait_path" alt="" />
+                  <span v-else class="avatar-letter" :style="{ background: ch.color }">{{ ch.name.slice(0, 1) }}</span>
+                </div>
+                <div class="cli-info">
+                  <span class="cli-name">{{ ch.name }}</span>
+                  <span class="fantasy-badge" :class="ch.role === 'GM' ? 'arcane' : 'gold'" style="font-size:10px">{{ ch.role }}</span>
+                </div>
+              </div>
+              <div v-if="!characters.length" class="empty-state small">暂无角色</div>
+            </div>
+          </div>
+
+          <!-- Right: Character Detail -->
+          <div class="char-detail-panel">
+            <template v-if="selectedChar">
+              <n-tabs v-model:value="charDetailTab" type="line" animated size="small">
+                <!-- Edit Tab -->
+                <n-tab-pane name="edit" tab="📝 编辑">
+                  <div class="char-edit-content">
+                    <div class="char-form-grid">
+                      <div class="form-group">
+                        <label class="form-label">角色名</label>
+                        <n-input v-model:value="characterForm.name" placeholder="角色名称" />
+                      </div>
+                      <div class="form-group">
+                        <label class="form-label">身份</label>
+                        <n-select v-model:value="characterForm.role" :options="roleOptions" />
+                      </div>
+                      <div class="form-group">
+                        <label class="form-label">色系</label>
+                        <n-color-picker v-model:value="characterForm.color" size="small" />
+                      </div>
+                      <div class="form-group">
+                        <label class="form-label">禁用槽位警告</label>
+                        <n-switch v-model:value="characterForm.slot_warning_disabled" />
+                      </div>
+                    </div>
+                    <div class="form-actions">
+                      <n-button type="primary" @click="saveCharacter">✦ 保存修改</n-button>
+                      <label class="upload-label">
+                        <input type="file" accept="image/*" @change="uploadPortrait($event, selectedChar)" />
+                        📷 上传立绘
+                      </label>
+                      <n-button type="error" quaternary @click="removeCharacter(selectedChar)">🗑 删除角色</n-button>
+                    </div>
+                  </div>
+                </n-tab-pane>
+
+                <!-- Items Tab -->
+                <n-tab-pane name="items" tab="📦 物品统计">
+                  <div class="char-items-content">
+                    <div class="char-items-summary">
+                      总价值: <strong>{{ charTotalValue }} gp</strong> ·
+                      物品数: <strong>{{ selectedChar.items?.length || 0 }}</strong>
+                    </div>
+                    <div v-if="!selectedChar.items?.length" class="empty-state small">暂无物品</div>
+                    <div v-else class="char-items-list">
+                      <div
+                        v-for="item in selectedChar.items"
+                        :key="item.item_id"
+                        class="char-item-row"
+                      >
+                        <span class="type-badge small">{{ item.type }}</span>
+                        <span class="ci-name">{{ item.name }}</span>
+                        <span class="ci-qty">×{{ item.quantity }}</span>
+                        <span class="ci-price">{{ item.unit_price }} gp</span>
+                        <span class="ci-total">= {{ (item.quantity * item.unit_price).toFixed(1) }} gp</span>
+                      </div>
+                    </div>
+                  </div>
+                </n-tab-pane>
+
+                <!-- Buff Tab -->
+                <n-tab-pane name="buffs" tab="🛡 Buff管理">
+                  <div class="buff-content">
+                    <div class="buff-input-row">
+                      <n-select
+                        v-model:value="buffForm.level"
+                        :options="buffLevelOptions"
+                        placeholder="持续级别"
+                        size="small"
+                        style="width: 120px"
+                      />
+                      <n-input v-model:value="buffForm.name" placeholder="Buff名称" size="small" style="flex:1" />
+                      <n-input v-model:value="buffForm.resource_note" placeholder="资源备注" size="small" style="width: 140px" />
+                      <n-button type="primary" size="small" @click="addBuff">添加</n-button>
+                    </div>
+                    <div class="buff-list">
+                      <div
+                        v-for="buff in selectedChar.buffs"
+                        :key="buff.id"
+                        class="buff-item"
+                      >
+                        <span class="buff-level-tag">{{ buff.level }}</span>
+                        <span class="buff-name">{{ buff.name }}</span>
+                        <span class="muted">{{ buff.resource_note }}</span>
+                        <button class="icon-btn danger small" @click="removeBuff(selectedChar.id, buff.id)">✕</button>
+                      </div>
+                      <div v-if="!selectedChar.buffs?.length" class="empty-state small">暂无Buff</div>
+                    </div>
+                  </div>
+                </n-tab-pane>
+              </n-tabs>
+            </template>
+            <div v-else class="empty-state">
+              <span class="empty-icon">👈</span>
+              <span>选择左侧角色查看详情</span>
+            </div>
+          </div>
+        </div>
+      </n-tab-pane>
+
+      <!-- ===== TAB 3: 流水记录 ===== -->
+      <n-tab-pane name="transactions" tab="💰 流水记录">
+        <div class="tab-content">
+          <div class="action-bar">
+            <n-button type="primary" @click="txModalShow = true; resetTxForm()">✦ 新建记录</n-button>
+            <div class="spacer"></div>
+            <div class="tx-summary" v-if="txSummary">
+              <span class="tx-s-income">收入: {{ txSummary.total_income.toFixed(1) }} gp</span>
+              <span class="tx-s-expense">支出: {{ txSummary.total_expense.toFixed(1) }} gp</span>
+              <span class="tx-s-balance" :class="{ positive: txSummary.balance >= 0, negative: txSummary.balance < 0 }">
+                余额: {{ txSummary.balance.toFixed(1) }} gp
+              </span>
+            </div>
+          </div>
+
+          <div class="tx-list">
+            <div
+              v-for="tx in transactions"
+              :key="tx.id"
+              class="tx-card ornate-frame"
+              :class="tx.type"
+            >
+              <div class="tx-header">
+                <span class="tx-type-badge" :class="tx.type">
+                  {{ tx.type === 'income' ? '📈 收入' : '📉 支出' }}
+                </span>
+                <span class="tx-date">{{ formatDate(tx.created_at) }}</span>
+              </div>
+              <div class="tx-desc">{{ tx.description }}</div>
+              <div class="tx-amounts">
+                <span v-if="tx.gp_amount">🪙 GP: {{ tx.gp_amount }}</span>
+                <span v-if="tx.item_value">📦 物品: {{ tx.item_value }} gp</span>
+                <span class="tx-total">总计: {{ tx.total_value }} gp</span>
+              </div>
+              <div v-if="tx.note" class="tx-note muted">{{ tx.note }}</div>
+              <div class="tx-actions">
+                <button class="icon-btn danger small" @click="deleteTx(tx)">🗑</button>
+              </div>
+            </div>
+            <div v-if="!transactions.length" class="empty-state">
+              <span class="empty-icon">💰</span>
+              <span>暂无流水记录</span>
+            </div>
+          </div>
+        </div>
+      </n-tab-pane>
+
+      <!-- ===== TAB 4: Loot记录备忘录 ===== -->
+      <n-tab-pane name="loot-records" tab="📋 Loot记录">
+        <div class="tab-content">
+          <div v-if="!lootRecords.length" class="empty-state">
+            <span class="empty-icon">📋</span>
+            <span>暂无Loot记录</span>
+          </div>
+          <div v-else class="loot-records-list">
+            <div
+              v-for="record in lootRecords"
+              :key="record.id"
+              class="loot-record-card ornate-frame"
+            >
+              <!-- Header -->
+              <div class="lr-header">
+                <span class="lr-date">{{ formatDate(record.created_at) }}</span>
+                <div class="lr-header-right">
+                  <span class="fantasy-badge gold">{{ lrItemCount(record) }} 项物品</span>
+                  <span class="lr-total-value">总价值: {{ lrTotalValue(record).toFixed(1) }} gp</span>
+                </div>
+              </div>
+
+              <!-- Note -->
+              <div v-if="record.note" class="lr-note-line muted">📝 {{ record.note }}</div>
+
+              <!-- Items detail -->
+              <div class="lr-items-section">
+                <div
+                  v-for="(item, idx) in (record.item_snapshot || [])"
+                  :key="idx"
+                  class="lr-item-row"
+                >
+                  <span class="type-badge small">{{ item.type || '其他' }}</span>
+                  <span class="lr-item-name">{{ item.name || '未命名' }}</span>
+                  <span class="lr-item-qty">×{{ item.quantity || 0 }}</span>
+                  <span class="lr-item-price">{{ item.unit_price || 0 }} gp</span>
+                  <span class="lr-item-subtotal">= {{ ((item.quantity || 0) * (item.unit_price || 0)).toFixed(1) }} gp</span>
+                </div>
+              </div>
+
+              <!-- Allocations summary -->
+              <div v-if="lrHasAllocations(record)" class="lr-alloc-section">
+                <div class="lr-alloc-title">分配详情:</div>
+                <div
+                  v-for="(item, idx) in (record.item_snapshot || [])"
+                  :key="'alloc-' + idx"
+                >
+                  <div
+                    v-for="(alloc, aidx) in (item.allocations || [])"
+                    :key="'a-' + idx + '-' + aidx"
+                    class="lr-alloc-row"
+                  >
+                    <span class="lr-alloc-item-name">{{ item.name || '未命名' }}</span>
+                    <span class="lr-alloc-arrow">→</span>
+                    <span class="lr-alloc-char">{{ getCharacterName(alloc.characterId) }}</span>
+                    <span class="lr-alloc-qty">×{{ alloc.quantity }}</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Gold items -->
+              <div v-if="(record.gold_snapshot || []).length" class="lr-gold-section">
+                <span v-for="(g, gidx) in record.gold_snapshot" :key="'g-' + gidx" class="lr-gold-tag">
+                  🪙 {{ g.label || 'GP' }}: {{ g.amount || 0 }}
+                </span>
+              </div>
+
+              <!-- Value summary -->
+              <div class="lr-value-summary">
+                <span>已分配价值: {{ lrAllocatedValue(record).toFixed(1) }} gp</span>
+                <span>总价值: {{ lrTotalValue(record).toFixed(1) }} gp</span>
+              </div>
+
+              <!-- Edit toggle -->
+              <n-button size="small" quaternary @click="toggleRecordEdit(record.id)" style="margin-top:8px">
+                {{ expandedRecordIds.includes(record.id) ? '收起编辑' : '📝 编辑备忘录' }}
+              </n-button>
+
+              <!-- Expandable edit section -->
+              <div v-if="expandedRecordIds.includes(record.id)" class="lr-edit-section">
+                <n-input
+                  type="textarea"
+                  :value="record.memo_text"
+                  @update:value="(v) => (record.memo_text = v)"
+                  placeholder="可编辑备忘录"
+                  :autosize="{ minRows: 2, maxRows: 5 }"
+                />
+                <n-button size="small" type="primary" @click="saveRecordMemo(record)" style="margin-top:8px">
+                  保存备忘录
+                </n-button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </n-tab-pane>
+    </n-tabs>
+
+    <!-- ===== Modals ===== -->
+
+    <!-- Item Edit Modal -->
+    <ItemEditModal
+      v-model:show="itemModalShow"
+      :item="itemModalData"
+      @save="onItemModalSave"
+    />
+
+    <!-- Allocation Modal -->
+    <n-modal v-model:show="allocationModal" preset="card" title="分配物品" style="max-width: 480px">
+      <div class="alloc-form">
+        <div class="form-group">
+          <label class="form-label">物品</label>
+          <div class="alloc-item-name">{{ allocationState.item?.name }}</div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">分配给角色</label>
           <n-select
-            v-model:value="aiForm.providerId"
-            :options="aiProviderOptions"
-            placeholder="选择AI Provider"
-            style="min-width: 240px"
+            v-model:value="allocationState.characterId"
+            :options="characterOptions"
+            placeholder="选择角色"
           />
-          <n-button :loading="loading.aiParse" @click="parseLootByAi">解析为Loot</n-button>
-          <n-button :loading="loading.aiParse" @click="parseCharacterByAi">解析为角色</n-button>
-        </n-space>
-        <n-input
-          v-model:value="aiForm.inputText"
-          type="textarea"
-          placeholder="输入原始文本"
-          :autosize="{ minRows: 6, maxRows: 14 }"
-        />
-        <label class="upload-label">
-          <input type="file" accept="image/*" @change="onAiImageChange" />
-          上传图片 (可选)
-        </label>
-        <n-space>
-          <n-button tertiary type="primary" @click="applyAiLoot">将AI Loot录入仓库</n-button>
-          <n-button tertiary type="primary" @click="applyAiCharacter">将AI角色录入系统</n-button>
-        </n-space>
-        <n-alert v-if="aiForm.rawText" type="info" title="模型原始输出" :show-icon="false">
-          <pre class="json-view">{{ aiForm.rawText }}</pre>
-        </n-alert>
-        <n-alert v-if="aiForm.parsed" type="success" title="解析JSON" :show-icon="false">
-          <pre class="json-view">{{ JSON.stringify(aiForm.parsed, null, 2) }}</pre>
-        </n-alert>
-      </n-space>
-    </n-card>
+        </div>
+        <div class="form-group">
+          <label class="form-label">数量</label>
+          <n-input-number v-model:value="allocationState.quantity" :min="1" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">模式</label>
+          <n-radio-group v-model:value="allocationState.mode">
+            <n-space>
+              <n-radio value="set">覆盖设定</n-radio>
+              <n-radio value="merge">叠加分配</n-radio>
+              <n-radio value="takeover">抢占分配</n-radio>
+            </n-space>
+          </n-radio-group>
+        </div>
+        <div class="form-actions">
+          <n-button @click="allocationModal = false">取消</n-button>
+          <n-button type="primary" @click="submitAllocation">提交分配</n-button>
+        </div>
+      </div>
+    </n-modal>
+
+    <!-- New Character Modal -->
+    <n-modal v-model:show="newCharModalShow" preset="card" title="✦ 新建角色" style="max-width: 480px">
+      <div class="new-char-form">
+        <div class="char-form-grid">
+          <div class="form-group">
+            <label class="form-label">角色名</label>
+            <n-input v-model:value="newCharForm.name" placeholder="角色名称" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">身份</label>
+            <n-select v-model:value="newCharForm.role" :options="roleOptions" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">色系</label>
+            <n-color-picker v-model:value="newCharForm.color" size="small" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">禁用槽位警告</label>
+            <n-switch v-model:value="newCharForm.slot_warning_disabled" />
+          </div>
+        </div>
+      </div>
+      <template #footer>
+        <div class="modal-footer">
+          <n-button @click="newCharModalShow = false">取消</n-button>
+          <n-button type="primary" @click="createCharacter">✦ 创建角色</n-button>
+        </div>
+      </template>
+    </n-modal>
+
+    <!-- Transaction Modal -->
+    <n-modal v-model:show="txModalShow" preset="card" title="✦ 新建流水记录" style="max-width: 520px">
+      <div class="tx-form">
+        <div class="form-group">
+          <label class="form-label">类型</label>
+          <n-radio-group v-model:value="txForm.type">
+            <n-space>
+              <n-radio value="income">📈 收入</n-radio>
+              <n-radio value="expense">📉 支出</n-radio>
+            </n-space>
+          </n-radio-group>
+        </div>
+        <div class="form-group">
+          <label class="form-label">描述</label>
+          <n-input v-model:value="txForm.description" placeholder="例如: 击败红龙获得宝藏" />
+        </div>
+        <div class="form-row">
+          <div class="form-group flex-1">
+            <label class="form-label">GP 金额</label>
+            <n-input-number v-model:value="txForm.gp_amount" :min="0" />
+          </div>
+          <div class="form-group flex-1">
+            <label class="form-label">物品价值 (gp)</label>
+            <n-input-number v-model:value="txForm.item_value" :min="0" />
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">备注</label>
+          <n-input v-model:value="txForm.note" placeholder="可选备注" />
+        </div>
+      </div>
+      <template #footer>
+        <div class="modal-footer">
+          <n-button @click="txModalShow = false">取消</n-button>
+          <n-button type="primary" @click="createTransaction">✦ 创建记录</n-button>
+        </div>
+      </template>
+    </n-modal>
+
+    <!-- AI Input Modal -->
+    <AiInputModal
+      v-model:show="aiModalShow"
+      :parse-endpoint="aiParseEndpoint"
+      @confirm="onAiConfirm"
+    />
+
+    <!-- Delete Confirmation Modal -->
+    <n-modal v-model:show="deleteModalShow" preset="card" title="⚠ 删除确认" style="max-width: 480px">
+      <div class="delete-confirm-form">
+        <div class="delete-confirm-msg">
+          {{ deleteModalMessage }}
+        </div>
+        <div class="form-group" style="margin-top: 12px;">
+          <n-checkbox v-model:checked="deleteAddTransaction">
+            同时添加流水记录（支出）
+          </n-checkbox>
+        </div>
+        <div v-if="deleteAddTransaction" class="form-group" style="margin-top: 8px;">
+          <label class="form-label">备注</label>
+          <n-input v-model:value="deleteNote" placeholder="删除原因或备注（可选）" />
+        </div>
+      </div>
+      <template #footer>
+        <div class="modal-footer">
+          <n-button @click="deleteModalShow = false">取消</n-button>
+          <n-button type="error" @click="confirmDelete">🗑 确认删除</n-button>
+        </div>
+      </template>
+    </n-modal>
   </div>
 </template>
 
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue';
 import {
-  NCard,
-  NSpace,
-  NForm,
-  NFormItem,
+  NTabs,
+  NTabPane,
   NInput,
   NSelect,
   NColorPicker,
   NSwitch,
   NButton,
-  NTable,
-  NAvatar,
-  NTag,
   NInputNumber,
+  NCheckbox,
   NModal,
   NRadioGroup,
   NRadio,
-  NEmpty,
-  NAlert,
+  NSpace,
   useMessage
 } from 'naive-ui';
 import { apiRequest } from '../utils/api';
+import ItemEditModal from '../components/ItemEditModal.vue';
+import AiInputModal from '../components/AiInputModal.vue';
 
 const message = useMessage();
-
-const loading = reactive({
-  characters: false,
-  items: false,
-  lootRecords: false,
-  aiProviders: false,
-  aiParse: false
-});
+const activeTab = ref('warehouse');
 
 const characters = ref([]);
 const items = ref([]);
 const lootRecords = ref([]);
-const aiProviders = ref([]);
+const transactions = ref([]);
+const txSummary = ref(null);
 
-const roleOptions = [
-  { label: 'DM', value: 'DM' },
-  { label: 'PL', value: 'PL' },
-  { label: '其他', value: '其他' }
-];
+// --- Warehouse filtering/sorting ---
+const warehouseFilter = reactive({ keyword: '', type: '', sort: 'name_asc' });
+const selectedItemIds = ref([]);
 
 const itemTypeOptions = [
   { label: '装备', value: '装备' },
@@ -317,133 +636,124 @@ const itemTypeOptions = [
   { label: '其他', value: '其他' }
 ];
 
-const slotOptions = [
-  '主手',
-  '副手',
-  '盔甲',
-  '盾牌',
-  '披风',
-  '腰带',
-  '头环',
-  '头部',
-  '护符',
-  '戒指1',
-  '戒指2',
-  '腕部',
-  '胸部',
-  '躯体',
-  '眼睛',
-  '脚部',
-  '手套',
-  '手臂',
-  '奇物'
-].map((x) => ({ label: x, value: x }));
+const typeFilterOptions = computed(() => [
+  { label: '全部类型', value: '' },
+  ...itemTypeOptions
+]);
 
-const buffLevelOptions = ['天级', '小时级', '十分钟级', '分钟级', '轮级'].map((x) => ({
-  label: x,
-  value: x
-}));
+const sortOptions = [
+  { label: '名称 A→Z', value: 'name_asc' },
+  { label: '名称 Z→A', value: 'name_desc' },
+  { label: '价格 高→低', value: 'price_desc' },
+  { label: '价格 低→高', value: 'price_asc' },
+  { label: '数量 多→少', value: 'qty_desc' },
+  { label: '最新添加', value: 'newest' }
+];
 
-const characterForm = reactive({
-  id: '',
-  name: '',
-  role: 'PL',
-  color: '#5B8FF9',
-  notes: '',
-  slot_warning_disabled: false
+const filteredItems = computed(() => {
+  let list = [...items.value];
+  if (warehouseFilter.keyword) {
+    const kw = warehouseFilter.keyword.toLowerCase();
+    list = list.filter((x) => x.name.toLowerCase().includes(kw));
+  }
+  if (warehouseFilter.type) {
+    list = list.filter((x) => x.type === warehouseFilter.type);
+  }
+  const sort = warehouseFilter.sort;
+  if (sort === 'name_asc') list.sort((a, b) => a.name.localeCompare(b.name));
+  else if (sort === 'name_desc') list.sort((a, b) => b.name.localeCompare(a.name));
+  else if (sort === 'price_desc') list.sort((a, b) => b.unit_price - a.unit_price);
+  else if (sort === 'price_asc') list.sort((a, b) => a.unit_price - b.unit_price);
+  else if (sort === 'qty_desc') list.sort((a, b) => b.quantity - a.quantity);
+  else if (sort === 'newest') list.sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
+  return list;
 });
 
-const buffForm = reactive({
-  characterId: '',
-  level: '天级',
-  name: '',
-  resource_note: ''
-});
+const allItemsSelected = computed(() =>
+  filteredItems.value.length > 0 && filteredItems.value.every((x) => selectedItemIds.value.includes(x.id))
+);
+const someItemsSelected = computed(() =>
+  !allItemsSelected.value && filteredItems.value.some((x) => selectedItemIds.value.includes(x.id))
+);
 
-const itemForm = reactive({
-  id: '',
-  name: '',
-  type: '其他',
-  slot: null,
-  quantity: 1,
-  unit_price: 0,
-  weight: 0,
-  description: '',
-  display_description: ''
-});
+function toggleSelectAll(checked) {
+  if (checked) {
+    selectedItemIds.value = filteredItems.value.map((x) => x.id);
+  } else {
+    selectedItemIds.value = [];
+  }
+}
 
+function toggleSelectItem(id) {
+  const idx = selectedItemIds.value.indexOf(id);
+  if (idx >= 0) selectedItemIds.value.splice(idx, 1);
+  else selectedItemIds.value.push(id);
+}
+
+async function batchDeleteItems() {
+  deleteModalItems.value = filteredItems.value.filter(x => selectedItemIds.value.includes(x.id));
+  if (!deleteModalItems.value.length) return;
+  deleteModalMessage.value = `确认删除 ${deleteModalItems.value.length} 个物品？`;
+  deleteModalMode.value = 'batch';
+  deleteAddTransaction.value = true;
+  deleteNote.value = '';
+  deleteModalShow.value = true;
+}
+
+// --- Inline Edit ---
+const editingCell = reactive({ id: '', field: '' });
+
+function startInlineEdit(row, field) {
+  editingCell.id = row.id;
+  editingCell.field = field;
+}
+
+async function saveInlineEdit(row) {
+  editingCell.id = '';
+  editingCell.field = '';
+  try {
+    await apiRequest(`/api/items/${row.id}`, { method: 'PUT', body: { ...row } });
+  } catch (error) {
+    message.error(error.message || '保存失败');
+    await loadItems();
+  }
+}
+
+// --- Item Modal ---
+const itemModalShow = ref(false);
+const itemModalData = ref(null);
+
+function openItemModal(row) {
+  itemModalData.value = row ? { ...row } : {
+    name: '', type: '其他', slot: null, quantity: 1,
+    unit_price: 0, weight: 0, description: '', display_description: ''
+  };
+  itemModalShow.value = true;
+}
+
+async function onItemModalSave(data) {
+  try {
+    if (data.id) {
+      await apiRequest(`/api/items/${data.id}`, { method: 'PUT', body: data });
+      message.success('物品已更新');
+    } else {
+      await apiRequest('/api/items', { method: 'POST', body: data });
+      message.success('物品已创建');
+    }
+    itemModalShow.value = false;
+    await loadItems();
+  } catch (error) {
+    message.error(error.message || '保存物品失败');
+  }
+}
+
+// --- Allocation ---
 const allocationModal = ref(false);
-const allocationState = reactive({
-  item: null,
-  characterId: '',
-  quantity: 1,
-  mode: 'set'
-});
-
-const aiForm = reactive({
-  providerId: '',
-  inputText: '',
-  imageDataUrl: '',
-  parsed: null,
-  rawText: ''
-});
+const allocationState = reactive({ item: null, characterId: '', quantity: 1, mode: 'set' });
 
 const characterOptions = computed(() =>
   characters.value.map((x) => ({ label: `${x.name}(${x.role})`, value: x.id }))
 );
-
-const currentBuffCharacter = computed(() =>
-  characters.value.find((x) => x.id === buffForm.characterId) || null
-);
-
-const aiProviderOptions = computed(() =>
-  aiProviders.value.map((x) => ({
-    label: `${x.name}${x.is_default ? ' (默认)' : ''}`,
-    value: x.id
-  }))
-);
-
-function resetCharacterForm() {
-  characterForm.id = '';
-  characterForm.name = '';
-  characterForm.role = 'PL';
-  characterForm.color = '#5B8FF9';
-  characterForm.notes = '';
-  characterForm.slot_warning_disabled = false;
-}
-
-function resetItemForm() {
-  itemForm.id = '';
-  itemForm.name = '';
-  itemForm.type = '其他';
-  itemForm.slot = null;
-  itemForm.quantity = 1;
-  itemForm.unit_price = 0;
-  itemForm.weight = 0;
-  itemForm.description = '';
-  itemForm.display_description = '';
-}
-
-function editCharacter(row) {
-  characterForm.id = row.id;
-  characterForm.name = row.name;
-  characterForm.role = row.role;
-  characterForm.color = row.color;
-  characterForm.notes = row.notes || '';
-  characterForm.slot_warning_disabled = Boolean(row.slot_warning_disabled);
-}
-
-function editItem(row) {
-  itemForm.id = row.id;
-  itemForm.name = row.name;
-  itemForm.type = row.type;
-  itemForm.slot = row.slot;
-  itemForm.quantity = row.quantity;
-  itemForm.unit_price = row.unit_price;
-  itemForm.weight = row.weight;
-  itemForm.description = row.description || '';
-  itemForm.display_description = row.display_description || '';
-}
 
 function openAllocate(row) {
   allocationState.item = row;
@@ -453,226 +763,11 @@ function openAllocate(row) {
   allocationModal.value = true;
 }
 
-function itemRowStyle(row) {
-  if (!row.allocations?.length) {
-    return {};
-  }
-
-  return {
-    background: `${row.allocations[0].character_color}11`
-  };
-}
-
-function formatDate(v) {
-  if (!v) {
-    return '';
-  }
-  return new Date(v).toLocaleString();
-}
-
-async function loadCharacters() {
-  loading.characters = true;
-  try {
-    characters.value = await apiRequest('/api/characters');
-    if (!buffForm.characterId && characters.value.length) {
-      buffForm.characterId = characters.value[0].id;
-    }
-  } catch (error) {
-    message.error(error.message || '加载角色失败');
-  } finally {
-    loading.characters = false;
-  }
-}
-
-async function loadItems() {
-  loading.items = true;
-  try {
-    items.value = await apiRequest('/api/items');
-  } catch (error) {
-    message.error(error.message || '加载物品失败');
-  } finally {
-    loading.items = false;
-  }
-}
-
-async function loadLootRecords() {
-  loading.lootRecords = true;
-  try {
-    lootRecords.value = await apiRequest('/api/loot-records');
-  } catch (error) {
-    message.error(error.message || '加载Loot记录失败');
-  } finally {
-    loading.lootRecords = false;
-  }
-}
-
-async function loadAiProviders() {
-  loading.aiProviders = true;
-  try {
-    aiProviders.value = await apiRequest('/api/ai/providers');
-    if (!aiForm.providerId && aiProviders.value.length) {
-      aiForm.providerId = aiProviders.value[0].id;
-    }
-  } catch (error) {
-    message.warning(error.message || 'AI Provider未配置，可在设置页补充');
-  } finally {
-    loading.aiProviders = false;
-  }
-}
-
-async function saveCharacter() {
-  if (!characterForm.name) {
-    message.warning('请输入角色名');
-    return;
-  }
-
-  try {
-    if (characterForm.id) {
-      await apiRequest(`/api/characters/${characterForm.id}`, {
-        method: 'PUT',
-        body: { ...characterForm }
-      });
-      message.success('角色已更新');
-    } else {
-      await apiRequest('/api/characters', {
-        method: 'POST',
-        body: { ...characterForm }
-      });
-      message.success('角色已创建');
-    }
-    resetCharacterForm();
-    await loadCharacters();
-  } catch (error) {
-    message.error(error.message || '保存角色失败');
-  }
-}
-
-async function removeCharacter(row) {
-  const confirmName = window.prompt(`删除角色 ${row.name} 前，请输入完整角色名确认`);
-  if (confirmName == null) {
-    return;
-  }
-
-  try {
-    await apiRequest(`/api/characters/${row.id}`, {
-      method: 'DELETE',
-      body: { confirmName }
-    });
-    message.success('角色已删除');
-    if (characterForm.id === row.id) {
-      resetCharacterForm();
-    }
-    await Promise.all([loadCharacters(), loadItems()]);
-  } catch (error) {
-    message.error(error.message || '删除角色失败');
-  }
-}
-
-async function uploadPortrait(event, row) {
-  const file = event.target.files?.[0];
-  if (!file) {
-    return;
-  }
-
-  const formData = new FormData();
-  formData.append('portrait', file);
-  try {
-    await apiRequest(`/api/characters/${row.id}/portrait`, {
-      method: 'POST',
-      body: formData
-    });
-    message.success('立绘上传成功');
-    await loadCharacters();
-  } catch (error) {
-    message.error(error.message || '上传立绘失败');
-  } finally {
-    event.target.value = '';
-  }
-}
-
-async function addBuff() {
-  if (!buffForm.characterId || !buffForm.level || !buffForm.name) {
-    message.warning('请完整填写Buff信息');
-    return;
-  }
-
-  try {
-    await apiRequest(`/api/characters/${buffForm.characterId}/buffs`, {
-      method: 'POST',
-      body: {
-        level: buffForm.level,
-        name: buffForm.name,
-        resource_note: buffForm.resource_note
-      }
-    });
-    buffForm.name = '';
-    buffForm.resource_note = '';
-    await loadCharacters();
-  } catch (error) {
-    message.error(error.message || '添加Buff失败');
-  }
-}
-
-async function removeBuff(characterId, buffId) {
-  try {
-    await apiRequest(`/api/characters/${characterId}/buffs/${buffId}`, {
-      method: 'DELETE'
-    });
-    await loadCharacters();
-  } catch (error) {
-    message.error(error.message || '删除Buff失败');
-  }
-}
-
-async function saveItem() {
-  if (!itemForm.name || !itemForm.type) {
-    message.warning('请输入物品名称和类型');
-    return;
-  }
-
-  try {
-    if (itemForm.id) {
-      await apiRequest(`/api/items/${itemForm.id}`, {
-        method: 'PUT',
-        body: { ...itemForm }
-      });
-      message.success('物品已更新');
-    } else {
-      await apiRequest('/api/items', {
-        method: 'POST',
-        body: { ...itemForm }
-      });
-      message.success('物品已创建');
-    }
-    resetItemForm();
-    await loadItems();
-  } catch (error) {
-    message.error(error.message || '保存物品失败');
-  }
-}
-
-async function removeItem(row) {
-  if (!window.confirm(`确认删除物品：${row.name} ?`)) {
-    return;
-  }
-
-  try {
-    await apiRequest(`/api/items/${row.id}`, {
-      method: 'DELETE'
-    });
-    message.success('物品已删除');
-    await loadItems();
-  } catch (error) {
-    message.error(error.message || '删除物品失败');
-  }
-}
-
 async function submitAllocation() {
   if (!allocationState.item || !allocationState.characterId) {
     message.warning('请选择角色');
     return;
   }
-
   try {
     const data = await apiRequest(`/api/items/${allocationState.item.id}/allocations`, {
       method: 'POST',
@@ -682,13 +777,8 @@ async function submitAllocation() {
         mode: allocationState.mode
       }
     });
-
-    if (data.warning) {
-      message.warning(data.warning);
-    } else {
-      message.success('分配成功');
-    }
-
+    if (data.warning) message.warning(data.warning);
+    else message.success('分配成功');
     allocationModal.value = false;
     await loadItems();
   } catch (error) {
@@ -706,22 +796,377 @@ async function submitAllocation() {
 
 async function removeAllocation(itemId, characterId) {
   try {
-    await apiRequest(`/api/items/${itemId}/allocations/${characterId}`, {
-      method: 'DELETE'
-    });
+    await apiRequest(`/api/items/${itemId}/allocations/${characterId}`, { method: 'DELETE' });
     await loadItems();
   } catch (error) {
     message.error(error.message || '移除分配失败');
   }
 }
 
+// --- Character Management ---
+const selectedCharId = ref('');
+const charDetailTab = ref('edit');
+const newCharModalShow = ref(false);
+const roleOptions = [
+  { label: 'GM', value: 'GM' },
+  { label: 'PL', value: 'PL' },
+  { label: '其他', value: '其他' }
+];
+
+const selectedChar = computed(() =>
+  characters.value.find((x) => x.id === selectedCharId.value) || null
+);
+
+const charTotalValue = computed(() => {
+  if (!selectedChar.value?.items?.length) return '0.0';
+  return selectedChar.value.items.reduce((sum, i) => sum + (i.quantity * i.unit_price), 0).toFixed(1);
+});
+
+const characterForm = reactive({
+  id: '', name: '', role: 'PL', color: '#5B8FF9', notes: '', slot_warning_disabled: false
+});
+
+function randomFantasyColor() {
+  const hue = Math.floor(Math.random() * 360);
+  const sat = 50 + Math.floor(Math.random() * 30);
+  const lum = 45 + Math.floor(Math.random() * 20);
+  return `hsl(${hue}, ${sat}%, ${lum}%)`;
+}
+
+const newCharForm = reactive({
+  name: '', role: 'PL', color: randomFantasyColor(), slot_warning_disabled: false
+});
+
+function openNewCharacterModal() {
+  newCharForm.name = '';
+  newCharForm.role = 'PL';
+  newCharForm.color = randomFantasyColor();
+  newCharForm.slot_warning_disabled = false;
+  newCharModalShow.value = true;
+}
+
+function selectCharacter(ch) {
+  selectedCharId.value = ch.id;
+  characterForm.id = ch.id;
+  characterForm.name = ch.name;
+  characterForm.role = ch.role;
+  characterForm.color = ch.color;
+  characterForm.notes = ch.notes || '';
+  characterForm.slot_warning_disabled = Boolean(ch.slot_warning_disabled);
+  charDetailTab.value = 'edit';
+}
+
+async function createCharacter() {
+  if (!newCharForm.name) {
+    message.warning('请输入角色名');
+    return;
+  }
+  try {
+    await apiRequest('/api/characters', { method: 'POST', body: { ...newCharForm } });
+    message.success('角色已创建');
+    newCharModalShow.value = false;
+    await loadCharacters();
+  } catch (error) {
+    message.error(error.message || '创建角色失败');
+  }
+}
+
+async function saveCharacter() {
+  if (!characterForm.name) {
+    message.warning('请输入角色名');
+    return;
+  }
+  try {
+    await apiRequest(`/api/characters/${characterForm.id}`, {
+      method: 'PUT', body: { ...characterForm }
+    });
+    message.success('角色已更新');
+    await loadCharacters();
+  } catch (error) {
+    message.error(error.message || '保存角色失败');
+  }
+}
+
+async function removeCharacter(row) {
+  const confirmName = window.prompt(`删除角色 ${row.name} 前，请输入完整角色名确认`);
+  if (confirmName == null) return;
+  try {
+    await apiRequest(`/api/characters/${row.id}`, {
+      method: 'DELETE', body: { confirmName }
+    });
+    message.success('角色已删除');
+    if (selectedCharId.value === row.id) selectedCharId.value = '';
+    await Promise.all([loadCharacters(), loadItems()]);
+  } catch (error) {
+    message.error(error.message || '删除角色失败');
+  }
+}
+
+async function uploadPortrait(event, row) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  const formData = new FormData();
+  formData.append('portrait', file);
+  try {
+    await apiRequest(`/api/characters/${row.id}/portrait`, { method: 'POST', body: formData });
+    message.success('立绘上传成功');
+    await loadCharacters();
+  } catch (error) {
+    message.error(error.message || '上传立绘失败');
+  } finally {
+    event.target.value = '';
+  }
+}
+
+// --- Buff Management ---
+const buffLevelOptions = ['天级', '小时级', '十分钟级', '分钟级', '轮级'].map((x) => ({
+  label: x, value: x
+}));
+
+const buffForm = reactive({ level: '天级', name: '', resource_note: '' });
+
+async function addBuff() {
+  if (!selectedCharId.value || !buffForm.name) {
+    message.warning('请完整填写Buff信息');
+    return;
+  }
+  try {
+    await apiRequest(`/api/characters/${selectedCharId.value}/buffs`, {
+      method: 'POST', body: { level: buffForm.level, name: buffForm.name, resource_note: buffForm.resource_note }
+    });
+    buffForm.name = '';
+    buffForm.resource_note = '';
+    await loadCharacters();
+  } catch (error) {
+    message.error(error.message || '添加Buff失败');
+  }
+}
+
+async function removeBuff(characterId, buffId) {
+  try {
+    await apiRequest(`/api/characters/${characterId}/buffs/${buffId}`, { method: 'DELETE' });
+    await loadCharacters();
+  } catch (error) {
+    message.error(error.message || '删除Buff失败');
+  }
+}
+
+// --- Transaction Management ---
+const txModalShow = ref(false);
+const txForm = reactive({ type: 'income', description: '', gp_amount: 0, item_value: 0, note: '' });
+
+function resetTxForm() {
+  txForm.type = 'income';
+  txForm.description = '';
+  txForm.gp_amount = 0;
+  txForm.item_value = 0;
+  txForm.note = '';
+}
+
+async function createTransaction() {
+  if (!txForm.description) {
+    message.warning('请输入描述');
+    return;
+  }
+  try {
+    await apiRequest('/api/transactions', { method: 'POST', body: { ...txForm } });
+    message.success('流水记录已创建');
+    txModalShow.value = false;
+    await loadTransactions();
+  } catch (error) {
+    message.error(error.message || '创建记录失败');
+  }
+}
+
+async function deleteTx(tx) {
+  if (!window.confirm(`确认删除记录：${tx.description}？`)) return;
+  try {
+    await apiRequest(`/api/transactions/${tx.id}`, { method: 'DELETE' });
+    message.success('记录已删除');
+    await loadTransactions();
+  } catch (error) {
+    message.error(error.message || '删除失败');
+  }
+}
+
+// --- AI Modal ---
+const aiModalShow = ref(false);
+const aiParseEndpoint = ref('/api/ai/parse-loot');
+
+// --- Loot Record Helpers ---
+const expandedRecordIds = ref([]);
+
+function toggleRecordEdit(recordId) {
+  const idx = expandedRecordIds.value.indexOf(recordId);
+  if (idx >= 0) {
+    expandedRecordIds.value.splice(idx, 1);
+  } else {
+    expandedRecordIds.value.push(recordId);
+  }
+}
+
+function lrItemCount(record) {
+  return (record.item_snapshot || []).reduce((sum, x) => sum + Number(x.quantity || 0), 0);
+}
+
+function lrTotalValue(record) {
+  return (record.item_snapshot || []).reduce(
+    (sum, x) => sum + Number(x.quantity || 0) * Number(x.unit_price || 0), 0
+  );
+}
+
+function lrAllocatedValue(record) {
+  let total = 0;
+  for (const item of record.item_snapshot || []) {
+    for (const alloc of item.allocations || []) {
+      total += Number(alloc.quantity || 0) * Number(item.unit_price || 0);
+    }
+  }
+  return total;
+}
+
+function lrHasAllocations(record) {
+  return (record.item_snapshot || []).some(item => (item.allocations || []).length > 0);
+}
+
+function getCharacterName(characterId) {
+  if (!characterId) return '未分配';
+  const ch = characters.value.find(x => x.id === characterId);
+  return ch ? ch.name : '未知角色';
+}
+
+async function onAiConfirm(result) {
+  const lootItems = result.items || [];
+  try {
+    for (const x of lootItems) {
+      await apiRequest('/api/items', {
+        method: 'POST',
+        body: {
+          name: x.name || '未命名',
+          type: x.type || '其他',
+          slot: x.slot || null,
+          quantity: Number(x.quantity || 1),
+          unit_price: Number(x.unit_price || 0),
+          weight: Number(x.weight || 0),
+          description: x.description || '',
+          display_description: x.display_description || ''
+        }
+      });
+    }
+    if (lootItems.length) {
+      message.success(`AI 已录入 ${lootItems.length} 个物品`);
+      await loadItems();
+    }
+  } catch (error) {
+    message.error(error.message || '录入失败');
+  }
+}
+
+// --- Remove Item (with modal) ---
+const deleteModalShow = ref(false);
+const deleteModalMessage = ref('');
+const deleteModalMode = ref('single'); // 'single' or 'batch'
+const deleteModalItems = ref([]);
+const deleteAddTransaction = ref(true);
+const deleteNote = ref('');
+
+async function removeItem(row) {
+  deleteModalItems.value = [row];
+  deleteModalMessage.value = `确认删除物品：${row.name} ?`;
+  deleteModalMode.value = 'single';
+  deleteAddTransaction.value = true;
+  deleteNote.value = '';
+  deleteModalShow.value = true;
+}
+
+async function confirmDelete() {
+  const itemsToDelete = deleteModalItems.value;
+  if (!itemsToDelete.length) return;
+
+  try {
+    // If checkbox is checked, create a transaction record first
+    if (deleteAddTransaction.value) {
+      const totalValue = itemsToDelete.reduce(
+        (sum, x) => sum + Number(x.quantity || 0) * Number(x.unit_price || 0), 0
+      );
+      const names = itemsToDelete.map(x => x.name).join(', ');
+      await apiRequest('/api/transactions', {
+        method: 'POST',
+        body: {
+          type: 'expense',
+          description: `删除物品: ${names}`,
+          gp_amount: 0,
+          item_value: totalValue,
+          note: deleteNote.value || ''
+        }
+      });
+    }
+
+    // Delete items
+    for (const item of itemsToDelete) {
+      await apiRequest(`/api/items/${item.id}`, { method: 'DELETE' });
+    }
+
+    const count = itemsToDelete.length;
+    message.success(`已删除 ${count} 个物品${deleteAddTransaction.value ? '，流水记录已添加' : ''}`);
+
+    if (deleteModalMode.value === 'batch') {
+      selectedItemIds.value = [];
+    }
+
+    deleteModalShow.value = false;
+    await Promise.all([loadItems(), loadTransactions()]);
+  } catch (error) {
+    message.error(error.message || '删除失败');
+  }
+}
+
+// --- Data Loading ---
+async function loadCharacters() {
+  try {
+    characters.value = await apiRequest('/api/characters');
+    if (selectedCharId.value) {
+      const ch = characters.value.find((x) => x.id === selectedCharId.value);
+      if (ch) selectCharacter(ch);
+    }
+  } catch (error) {
+    message.error(error.message || '加载角色失败');
+  }
+}
+
+async function loadItems() {
+  try {
+    items.value = await apiRequest('/api/items');
+  } catch (error) {
+    message.error(error.message || '加载物品失败');
+  }
+}
+
+async function loadLootRecords() {
+  try {
+    lootRecords.value = await apiRequest('/api/loot-records');
+  } catch (error) {
+    message.error(error.message || '加载Loot记录失败');
+  }
+}
+
+async function loadTransactions() {
+  try {
+    const [list, summary] = await Promise.all([
+      apiRequest('/api/transactions'),
+      apiRequest('/api/transactions/summary')
+    ]);
+    transactions.value = list;
+    txSummary.value = summary;
+  } catch (error) {
+    message.error(error.message || '加载流水记录失败');
+  }
+}
+
 async function saveRecordMemo(record) {
   try {
     await apiRequest(`/api/loot-records/${record.id}/memo`, {
-      method: 'PUT',
-      body: {
-        memo_text: record.memo_text || ''
-      }
+      method: 'PUT', body: { memo_text: record.memo_text || '' }
     });
     message.success('备忘录已保存');
   } catch (error) {
@@ -729,221 +1174,321 @@ async function saveRecordMemo(record) {
   }
 }
 
-function fileToDataUrl(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result || ''));
-    reader.onerror = () => reject(new Error('读取图片失败'));
-    reader.readAsDataURL(file);
-  });
-}
-
-async function onAiImageChange(event) {
-  const file = event.target.files?.[0];
-  if (!file) {
-    return;
-  }
-
-  try {
-    aiForm.imageDataUrl = await fileToDataUrl(file);
-    message.success('图片已加载');
-  } catch (error) {
-    message.error(error.message || '图片处理失败');
-  } finally {
-    event.target.value = '';
-  }
-}
-
-async function parseLootByAi() {
-  loading.aiParse = true;
-  try {
-    const data = await apiRequest('/api/ai/parse-loot', {
-      method: 'POST',
-      body: {
-        providerId: aiForm.providerId || null,
-        inputText: aiForm.inputText,
-        imageDataUrl: aiForm.imageDataUrl
-      }
-    });
-
-    aiForm.parsed = data.parsed;
-    aiForm.rawText = data.raw_text || '';
-    message.success('Loot解析完成');
-  } catch (error) {
-    message.error(error.message || 'AI解析失败');
-  } finally {
-    loading.aiParse = false;
-  }
-}
-
-async function parseCharacterByAi() {
-  loading.aiParse = true;
-  try {
-    const data = await apiRequest('/api/ai/parse-character', {
-      method: 'POST',
-      body: {
-        providerId: aiForm.providerId || null,
-        inputText: aiForm.inputText,
-        imageDataUrl: aiForm.imageDataUrl
-      }
-    });
-
-    aiForm.parsed = data.parsed;
-    aiForm.rawText = data.raw_text || '';
-    message.success('角色解析完成');
-  } catch (error) {
-    message.error(error.message || 'AI解析失败');
-  } finally {
-    loading.aiParse = false;
-  }
-}
-
-async function applyAiLoot() {
-  const lootItems = aiForm.parsed?.loot_items;
-  if (!Array.isArray(lootItems) || !lootItems.length) {
-    message.warning('当前解析结果中没有loot_items');
-    return;
-  }
-
-  try {
-    for (const loot of lootItems) {
-      await apiRequest('/api/items', {
-        method: 'POST',
-        body: {
-          name: loot.name,
-          type: loot.type || '其他',
-          slot: loot.slot || null,
-          quantity: Number(loot.quantity || 1),
-          unit_price: Number(loot.unit_price || 0),
-          weight: Number(loot.weight || 0),
-          description: loot.description || '',
-          display_description: loot.display_description || ''
-        }
-      });
-    }
-    message.success('AI Loot已录入仓库');
-    await loadItems();
-  } catch (error) {
-    message.error(error.message || '录入AI Loot失败');
-  }
-}
-
-async function applyAiCharacter() {
-  const character = aiForm.parsed?.character;
-  if (!character?.name) {
-    message.warning('当前解析结果中没有角色信息');
-    return;
-  }
-
-  try {
-    const created = await apiRequest('/api/characters', {
-      method: 'POST',
-      body: {
-        name: character.name,
-        role: character.role || 'PL',
-        color: character.color || '#5B8FF9'
-      }
-    });
-
-    const buffs = aiForm.parsed?.buffs || [];
-    for (const buff of buffs) {
-      await apiRequest(`/api/characters/${created.id}/buffs`, {
-        method: 'POST',
-        body: {
-          level: buff.level || '天级',
-          name: buff.name || '未命名Buff',
-          resource_note: buff.resource_note || '',
-          description: buff.description || ''
-        }
-      });
-    }
-
-    const parsedItems = aiForm.parsed?.items || [];
-    for (const item of parsedItems) {
-      const inserted = await apiRequest('/api/items', {
-        method: 'POST',
-        body: {
-          name: item.name || '未命名物品',
-          type: item.type || '其他',
-          slot: item.slot || null,
-          quantity: Number(item.quantity || 1),
-          unit_price: Number(item.unit_price || 0),
-          weight: Number(item.weight || 0),
-          description: item.description || '',
-          display_description: item.display_description || ''
-        }
-      });
-
-      await apiRequest(`/api/items/${inserted.id}/allocations`, {
-        method: 'POST',
-        body: {
-          characterId: created.id,
-          quantity: Number(item.quantity || 1),
-          mode: 'set'
-        }
-      });
-    }
-
-    message.success('AI角色数据已录入');
-    await Promise.all([loadCharacters(), loadItems()]);
-  } catch (error) {
-    message.error(error.message || '录入AI角色失败');
-  }
+function formatDate(v) {
+  if (!v) return '';
+  return new Date(v).toLocaleString();
 }
 
 onMounted(async () => {
-  await Promise.all([loadCharacters(), loadItems(), loadLootRecords(), loadAiProviders()]);
+  await Promise.all([loadCharacters(), loadItems(), loadLootRecords(), loadTransactions()]);
 });
 </script>
 
 <style scoped>
-.page-grid {
+.data-page { position: relative; }
+.tab-content { padding-top: 16px; }
+
+/* Action bar */
+.action-bar {
+  display: flex; gap: 8px; margin-bottom: 16px;
+  flex-wrap: wrap; align-items: center;
+}
+.spacer { flex: 1; }
+
+/* Table */
+.table-wrap { overflow-x: auto; }
+
+.fantasy-table {
+  width: 100%; border-collapse: collapse;
+}
+.fantasy-table th {
+  padding: 10px; font-size: 13px; color: var(--gold);
+  border-bottom: 1px solid var(--border-strong);
+  text-align: left; letter-spacing: 0.5px; white-space: nowrap;
+}
+.fantasy-table td {
+  padding: 8px 10px; border-bottom: 1px solid rgba(201, 168, 76, 0.08);
+  font-size: 14px; vertical-align: middle;
+}
+.fantasy-table tr:hover td { background: rgba(201, 168, 76, 0.04); }
+.selected-row td { background: rgba(110, 92, 199, 0.08) !important; }
+
+.type-badge {
+  display: inline-block; padding: 1px 8px; border-radius: 12px; font-size: 12px;
+  background: var(--arcane-glow); color: var(--arcane-bright); border: 1px solid var(--arcane-dim);
+}
+.type-badge.small { font-size: 10px; padding: 0 6px; }
+.slot-badge {
+  display: inline-block; padding: 1px 6px; border-radius: 12px; font-size: 11px;
+  background: var(--gold-glow); color: var(--gold); border: 1px solid var(--gold-dim);
+  margin-left: 4px;
+}
+
+.editable-cell {
+  cursor: pointer; padding: 2px 4px; border-radius: 4px;
+  transition: background 0.2s;
+}
+.editable-cell:hover { background: rgba(201, 168, 76, 0.1); }
+.inline-edit { display: block; min-width: 60px; }
+
+.alloc-tags { display: flex; flex-wrap: wrap; gap: 4px; }
+.alloc-tag {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 8px; border-radius: 12px; font-size: 12px;
+  border: 1px solid; color: var(--text-primary);
+}
+.tag-close {
+  cursor: pointer; font-size: 10px; opacity: 0.6; transition: opacity 0.2s;
+}
+.tag-close:hover { opacity: 1; color: var(--danger); }
+
+.action-btns { display: flex; gap: 4px; }
+
+.icon-btn {
+  background: transparent; border: 1px solid var(--border);
+  color: var(--text-primary); width: 32px; height: 32px;
+  border-radius: var(--radius); cursor: pointer; font-size: 14px;
+  display: inline-grid; place-items: center; transition: all 0.2s;
+}
+.icon-btn:hover { border-color: var(--gold); background: var(--gold-glow); }
+.icon-btn.danger:hover { border-color: var(--danger); background: var(--danger-soft); }
+.icon-btn.small { width: 24px; height: 24px; font-size: 11px; }
+
+/* Character layout */
+.char-layout {
   display: grid;
+  grid-template-columns: 220px 1fr;
   gap: 16px;
+  min-height: 400px;
+}
+@media (max-width: 768px) {
+  .char-layout { grid-template-columns: 1fr; }
 }
 
-.section-subtitle {
-  margin: 0 0 8px;
+.char-list-panel {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-card);
+  overflow: hidden;
+}
+.char-list-header {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 12px; border-bottom: 1px solid var(--border);
+}
+.char-list-header .section-title { margin: 0; font-size: 14px; }
+.char-list {
+  max-height: 600px; overflow-y: auto;
+}
+.char-list-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px; cursor: pointer;
+  border-bottom: 1px solid rgba(201, 168, 76, 0.06);
+  transition: all 0.2s;
+}
+.char-list-item:hover { background: rgba(201, 168, 76, 0.04); }
+.char-list-item.active {
+  background: rgba(201, 168, 76, 0.08);
+  border-left: 3px solid var(--char-color, var(--gold));
+}
+.cli-avatar {
+  width: 36px; height: 36px; border-radius: 50%; overflow: hidden;
+  flex-shrink: 0; display: grid; place-items: center;
+}
+.cli-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.avatar-letter {
+  width: 36px; height: 36px; border-radius: 50%;
+  display: grid; place-items: center;
+  font-family: 'Cinzel', serif; font-size: 16px; color: #fff; font-weight: 700;
+}
+.cli-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.cli-name {
+  font-weight: 600; font-size: 14px; color: var(--text-bright);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 
-.buff-list {
-  margin-top: 8px;
+.char-detail-panel {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-card);
+  padding: 16px;
+  min-height: 300px;
 }
 
-.buff-row {
-  padding: 8px;
-  border: 1px solid #d9e2ec;
-  border-radius: 10px;
+.char-edit-content { display: flex; flex-direction: column; gap: 16px; padding-top: 8px; }
+.char-form-grid {
+  display: grid; grid-template-columns: 1fr 1fr;
+  gap: 12px;
 }
-
-.muted {
-  color: #486581;
-}
+@media (max-width: 640px) { .char-form-grid { grid-template-columns: 1fr; } }
+.form-group { display: flex; flex-direction: column; gap: 4px; }
+.form-label { font-size: 13px; color: var(--gold); letter-spacing: 0.5px; }
+.form-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 
 .upload-label {
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  border: 1px dashed #94a3b8;
-  padding: 4px 10px;
-  border-radius: 10px;
-  font-size: 12px;
-  color: #334e68;
+  cursor: pointer; display: inline-flex; align-items: center;
+  border: 1px dashed var(--border); padding: 4px 12px;
+  border-radius: 8px; font-size: 12px; color: var(--text-secondary);
+  transition: all 0.2s;
+}
+.upload-label:hover { border-color: var(--gold); color: var(--gold); }
+.upload-label input { display: none; }
+
+/* Char items */
+.char-items-content { padding-top: 8px; }
+.char-items-summary {
+  padding: 8px 12px; background: var(--bg-elevated);
+  border-radius: var(--radius); margin-bottom: 12px;
+  font-size: 14px; color: var(--text-secondary);
+}
+.char-items-summary strong { color: var(--gold); }
+.char-items-list { display: flex; flex-direction: column; gap: 4px; }
+.char-item-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 10px; border: 1px solid var(--border);
+  border-radius: var(--radius); font-size: 13px;
+}
+.ci-name { flex: 1; font-weight: 500; color: var(--text-bright); }
+.ci-qty { color: var(--gold); }
+.ci-price { color: var(--text-secondary); }
+.ci-total { color: var(--arcane-bright); font-weight: 500; }
+
+/* Buff */
+.buff-content { padding-top: 8px; }
+.buff-input-row {
+  display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px;
+}
+.buff-list { display: flex; flex-direction: column; gap: 6px; }
+.buff-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 12px; border: 1px solid var(--border);
+  border-radius: var(--radius); background: var(--bg-elevated);
+}
+.buff-level-tag {
+  padding: 2px 8px; border-radius: 12px; font-size: 11px;
+  background: var(--info-soft); color: var(--info);
+  border: 1px solid rgba(41, 128, 185, 0.3); white-space: nowrap;
+}
+.buff-name { font-weight: 500; color: var(--text-bright); }
+
+/* Transactions */
+.tx-summary {
+  display: flex; gap: 16px; font-size: 14px;
+}
+.tx-s-income { color: #2ecc71; }
+.tx-s-expense { color: #e74c3c; }
+.tx-s-balance { font-weight: 600; }
+.tx-s-balance.positive { color: #2ecc71; }
+.tx-s-balance.negative { color: #e74c3c; }
+
+.tx-list {
+  display: flex; flex-direction: column; gap: 10px;
+}
+.tx-card {
+  padding: 14px; position: relative;
+  border-left: 3px solid var(--border);
+}
+.tx-card.income { border-left-color: #2ecc71; }
+.tx-card.expense { border-left-color: #e74c3c; }
+.tx-header {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 6px;
+}
+.tx-type-badge {
+  font-size: 12px; padding: 2px 10px;
+  border-radius: 12px; font-weight: 600;
+}
+.tx-type-badge.income { background: rgba(46, 204, 113, 0.12); color: #2ecc71; }
+.tx-type-badge.expense { background: rgba(231, 76, 60, 0.12); color: #e74c3c; }
+.tx-date { font-size: 12px; color: var(--text-secondary); }
+.tx-desc { font-weight: 500; color: var(--text-bright); margin-bottom: 6px; }
+.tx-amounts { display: flex; gap: 16px; font-size: 13px; color: var(--text-secondary); }
+.tx-total { color: var(--gold); font-weight: 600; }
+.tx-note { font-size: 12px; margin-top: 4px; }
+.tx-actions { position: absolute; top: 10px; right: 10px; }
+
+.tx-form { display: flex; flex-direction: column; gap: 14px; }
+.form-row { display: flex; gap: 12px; }
+.flex-1 { flex: 1; }
+
+/* New character form inside modal */
+.new-char-form { display: flex; flex-direction: column; gap: 12px; }
+.modal-footer { display: flex; justify-content: flex-end; gap: 8px; }
+
+.alloc-form { display: flex; flex-direction: column; gap: 14px; }
+.alloc-item-name {
+  font-family: 'Cinzel', 'LXGW WenKai', serif;
+  font-size: 16px; color: var(--gold);
 }
 
-.upload-label input {
-  display: none;
+/* Loot records */
+.loot-records-list { display: flex; flex-direction: column; gap: 12px; }
+.loot-record-card { padding: 16px; }
+.lr-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.lr-header-right { display: flex; align-items: center; gap: 10px; }
+.lr-date { font-family: 'Cinzel', serif; color: var(--gold); font-size: 14px; }
+.lr-total-value { font-size: 13px; color: var(--gold); font-weight: 600; }
+.lr-note-line { margin-bottom: 8px; font-size: 13px; }
+
+/* Loot record items */
+.lr-items-section { display: flex; flex-direction: column; gap: 3px; margin-bottom: 8px; }
+.lr-item-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 4px 8px; font-size: 13px;
+  border-bottom: 1px solid rgba(201, 168, 76, 0.06);
+}
+.lr-item-name { flex: 1; font-weight: 500; color: var(--text-bright); }
+.lr-item-qty { color: var(--gold); min-width: 40px; }
+.lr-item-price { color: var(--text-secondary); min-width: 60px; }
+.lr-item-subtotal { color: var(--arcane-bright); font-weight: 500; min-width: 80px; text-align: right; }
+
+/* Loot record allocations */
+.lr-alloc-section {
+  margin: 8px 0; padding: 8px 10px;
+  background: var(--bg-elevated); border-radius: var(--radius);
+  border: 1px solid var(--border);
+}
+.lr-alloc-title { font-size: 12px; color: var(--gold); margin-bottom: 4px; letter-spacing: 0.5px; }
+.lr-alloc-row {
+  display: flex; align-items: center; gap: 6px;
+  padding: 2px 0; font-size: 12px; color: var(--text-secondary);
+}
+.lr-alloc-item-name { color: var(--text-primary); }
+.lr-alloc-arrow { color: var(--gold); }
+.lr-alloc-char { color: var(--arcane-bright); font-weight: 500; }
+.lr-alloc-qty { color: var(--gold); }
+
+/* Loot record gold */
+.lr-gold-section { display: flex; gap: 8px; flex-wrap: wrap; margin: 6px 0; }
+.lr-gold-tag {
+  font-size: 12px; padding: 2px 10px;
+  border-radius: 12px; background: var(--gold-glow); color: var(--gold);
+  border: 1px solid var(--gold-dim);
 }
 
-.loot-record-row {
-  border: 1px solid #d9e2ec;
-  border-radius: 12px;
-  padding: 12px;
+/* Loot record value summary */
+.lr-value-summary {
+  display: flex; gap: 16px; font-size: 13px;
+  padding: 6px 0; color: var(--text-secondary);
+  border-top: 1px solid var(--border);
+  margin-top: 6px;
 }
+.lr-value-summary span:last-child { color: var(--gold); font-weight: 600; }
 
-.json-view {
-  margin: 0;
-  max-height: 280px;
-  overflow: auto;
+/* Loot record edit section */
+.lr-edit-section { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
+
+/* Empty states */
+.empty-state {
+  display: flex; flex-direction: column; align-items: center;
+  gap: 8px; padding: 32px; color: var(--text-secondary);
+}
+.empty-state.small { padding: 12px; font-size: 13px; }
+.empty-icon { font-size: 40px; opacity: 0.4; }
+.muted { color: var(--text-secondary); font-size: 13px; }
+
+/* Delete confirmation */
+.delete-confirm-form { display: flex; flex-direction: column; gap: 4px; }
+.delete-confirm-msg {
+  font-size: 15px; color: var(--text-bright); line-height: 1.6;
 }
 </style>

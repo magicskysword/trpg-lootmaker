@@ -1,124 +1,165 @@
 <template>
-  <n-card class="card" title="设置界面（管理员）">
+  <div class="settings-page">
+    <h2 class="page-title">⚙ 设置界面</h2>
+
+    <!-- Admin Gate -->
     <template v-if="!sessionState.adminVerified">
-      <n-space vertical style="max-width: 420px">
-        <n-alert type="warning" :show-icon="false">进入设置页需要管理员密码二次验证。</n-alert>
-        <n-input
-          v-model:value="adminPassword"
-          type="password"
-          show-password-on="click"
-          placeholder="请输入管理员密码"
-        />
-        <n-button type="primary" :loading="verifying" @click="verifyAdmin">验证管理员身份</n-button>
-      </n-space>
+      <div class="admin-gate ornate-frame">
+        <div class="gate-icon">🔒</div>
+        <h3 class="gate-title">管理员验证</h3>
+        <p class="gate-desc">进入设置页需要管理员密码二次验证</p>
+        <div class="gate-form">
+          <n-input
+            v-model:value="adminPassword"
+            type="password"
+            show-password-on="click"
+            placeholder="请输入管理员密码"
+            size="large"
+            @keydown.enter.prevent="verifyAdmin"
+          />
+          <n-button type="primary" size="large" :loading="verifying" @click="verifyAdmin">
+            ✦ 验证身份
+          </n-button>
+        </div>
+      </div>
     </template>
 
+    <!-- Settings Content -->
     <template v-else>
-      <n-space vertical size="large">
-        <n-form inline>
-          <n-form-item label="名称">
+      <!-- Campaign Settings -->
+      <div class="ornate-frame campaign-card">
+        <h3 class="section-title">🏰 战役设置</h3>
+        <div class="campaign-form">
+          <div class="form-group">
+            <label class="form-label">战役名称（替代标题和副标题）</label>
+            <n-input
+              v-model:value="campaignName"
+              placeholder="例如: 巨蛇之颅 / Rise of the Runelords"
+            />
+          </div>
+          <n-button type="primary" size="small" @click="saveCampaignName">
+            ✦ 保存战役名称
+          </n-button>
+        </div>
+      </div>
+
+      <!-- Provider Form -->
+      <div class="ornate-frame provider-form-card">
+        <h3 class="section-title">
+          {{ form.id ? '编辑 AI Provider' : '✦ 新建 AI Provider' }}
+        </h3>
+        <div class="provider-form-grid">
+          <div class="form-group">
+            <label class="form-label">名称</label>
             <n-input v-model:value="form.name" placeholder="Provider名称" />
-          </n-form-item>
-          <n-form-item label="类型">
-            <n-select v-model:value="form.provider_type" :options="typeOptions" style="width: 180px" />
-          </n-form-item>
-          <n-form-item label="Base URL">
-            <n-input v-model:value="form.base_url" placeholder="例如 https://api.openai.com/v1" style="width: 320px" />
-          </n-form-item>
-          <n-form-item label="API Key">
-            <n-input v-model:value="form.api_key" placeholder="可为空" style="width: 240px" />
-          </n-form-item>
-          <n-form-item label="Model">
-            <n-input v-model:value="form.model" placeholder="模型名" style="width: 180px" />
-          </n-form-item>
-          <n-form-item label="温度">
+          </div>
+          <div class="form-group">
+            <label class="form-label">类型</label>
+            <n-select v-model:value="form.provider_type" :options="typeOptions" />
+          </div>
+          <div class="form-group span-2">
+            <label class="form-label">Base URL</label>
+            <n-input v-model:value="form.base_url" placeholder="例如 https://api.openai.com/v1" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">API Key</label>
+            <n-input v-model:value="form.api_key" placeholder="可为空" type="password" show-password-on="click" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">Model</label>
+            <n-input v-model:value="form.model" placeholder="模型名" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">温度</label>
             <n-input-number v-model:value="form.temperature" :min="0" :max="2" :step="0.1" />
-          </n-form-item>
-          <n-form-item label="多模态">
+          </div>
+          <div class="form-group">
+            <label class="form-label">多模态</label>
             <n-switch v-model:value="form.is_multimodal" />
-          </n-form-item>
-          <n-form-item label="图片转述Provider">
+          </div>
+          <div class="form-group">
+            <label class="form-label">图片转述Provider</label>
             <n-select
               v-model:value="form.image_caption_provider_id"
               :options="captionProviderOptions"
               clearable
-              style="width: 180px"
             />
-          </n-form-item>
-          <n-form-item label="默认">
+          </div>
+          <div class="form-group">
+            <label class="form-label">设为默认</label>
             <n-switch v-model:value="form.is_default" />
-          </n-form-item>
-          <n-form-item>
-            <n-button type="primary" @click="saveProvider">
-              {{ form.id ? '更新Provider' : '新建Provider' }}
-            </n-button>
-          </n-form-item>
-          <n-form-item v-if="form.id">
-            <n-button @click="resetForm">取消编辑</n-button>
-          </n-form-item>
-        </n-form>
+          </div>
+        </div>
+        <div class="form-actions">
+          <n-button type="primary" @click="saveProvider">
+            {{ form.id ? '✦ 更新Provider' : '✦ 创建Provider' }}
+          </n-button>
+          <n-button v-if="form.id" @click="resetForm">取消编辑</n-button>
+        </div>
+      </div>
 
-        <n-table striped>
-          <thead>
-            <tr>
-              <th>名称</th>
-              <th>类型</th>
-              <th>Base URL</th>
-              <th>Model</th>
-              <th>状态</th>
-              <th>操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="row in providers" :key="row.id">
-              <td>{{ row.name }}</td>
-              <td>{{ row.provider_type }}</td>
-              <td>{{ row.base_url }}</td>
-              <td>{{ row.model || '-' }}</td>
-              <td>
-                <n-space>
-                  <n-tag v-if="row.is_default" type="success">默认</n-tag>
-                  <n-tag v-if="row.is_multimodal" type="info">多模态</n-tag>
-                </n-space>
-              </td>
-              <td>
-                <n-space size="small">
-                  <n-button size="tiny" @click="editProvider(row)">编辑</n-button>
-                  <n-button size="tiny" @click="loadModels(row)">拉取模型</n-button>
-                  <n-button size="tiny" type="error" tertiary @click="removeProvider(row)">删除</n-button>
-                </n-space>
-              </td>
-            </tr>
-          </tbody>
-        </n-table>
+      <!-- Providers List -->
+      <div class="providers-list">
+        <div
+          v-for="row in providers"
+          :key="row.id"
+          class="provider-card ornate-frame"
+        >
+          <div class="pc-header">
+            <div class="pc-name">{{ row.name }}</div>
+            <div class="pc-badges">
+              <span v-if="row.is_default" class="fantasy-badge gold">默认</span>
+              <span v-if="row.is_multimodal" class="fantasy-badge arcane">多模态</span>
+            </div>
+          </div>
+          <div class="pc-details">
+            <div class="pc-detail-row">
+              <span class="pc-label">类型</span>
+              <span>{{ row.provider_type }}</span>
+            </div>
+            <div class="pc-detail-row">
+              <span class="pc-label">Base URL</span>
+              <span class="pc-url">{{ row.base_url }}</span>
+            </div>
+            <div class="pc-detail-row">
+              <span class="pc-label">Model</span>
+              <span>{{ row.model || '-' }}</span>
+            </div>
+          </div>
+          <div class="pc-actions">
+            <button class="icon-btn" title="编辑" @click="editProvider(row)">📝</button>
+            <button class="icon-btn" title="拉取模型" @click="loadModels(row)">📡</button>
+            <button class="icon-btn danger" title="删除" @click="removeProvider(row)">🗑</button>
+          </div>
+        </div>
+      </div>
 
-        <n-alert v-if="models.length" type="info" title="可用模型" :show-icon="false">
-          <n-space wrap>
-            <n-tag v-for="name in models" :key="name" @click="form.model = name" class="clickable-tag">
-              {{ name }}
-            </n-tag>
-          </n-space>
-        </n-alert>
-      </n-space>
+      <!-- Models list -->
+      <div v-if="models.length" class="ornate-frame models-panel">
+        <h3 class="section-title">📋 可用模型</h3>
+        <div class="models-grid">
+          <button
+            v-for="name in models"
+            :key="name"
+            class="model-chip"
+            @click="form.model = name"
+          >
+            {{ name }}
+          </button>
+        </div>
+      </div>
     </template>
-  </n-card>
+  </div>
 </template>
 
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue';
 import {
-  NCard,
-  NSpace,
-  NAlert,
   NInput,
   NButton,
-  NForm,
-  NFormItem,
   NSelect,
   NInputNumber,
   NSwitch,
-  NTable,
-  NTag,
   useMessage
 } from 'naive-ui';
 import { apiRequest } from '../utils/api';
@@ -129,6 +170,7 @@ const verifying = ref(false);
 const adminPassword = ref('');
 const providers = ref([]);
 const models = ref([]);
+const campaignName = ref('');
 
 const typeOptions = [
   { label: 'OpenAI兼容', value: 'openai_compatible' },
@@ -185,14 +227,11 @@ async function verifyAdmin() {
     message.warning('请输入管理员密码');
     return;
   }
-
   verifying.value = true;
   try {
     await apiRequest('/api/auth/admin-login', {
       method: 'POST',
-      body: {
-        password: adminPassword.value
-      }
+      body: { password: adminPassword.value }
     });
     await refreshSession();
     await loadProviders();
@@ -208,12 +247,30 @@ async function loadProviders() {
   providers.value = await apiRequest('/api/settings/providers');
 }
 
+async function loadCampaignName() {
+  try {
+    const data = await apiRequest('/api/settings/campaign');
+    campaignName.value = data.campaign_name || '';
+  } catch (_) {}
+}
+
+async function saveCampaignName() {
+  try {
+    await apiRequest('/api/settings/campaign', {
+      method: 'PUT',
+      body: { campaign_name: campaignName.value }
+    });
+    message.success('战役名称已保存');
+  } catch (error) {
+    message.error(error.message || '保存失败');
+  }
+}
+
 async function saveProvider() {
   if (!form.name || !form.base_url) {
     message.warning('名称和Base URL为必填项');
     return;
   }
-
   const payload = {
     name: form.name,
     provider_type: form.provider_type,
@@ -225,22 +282,14 @@ async function saveProvider() {
     image_caption_provider_id: form.image_caption_provider_id,
     is_default: form.is_default
   };
-
   try {
     if (form.id) {
-      await apiRequest(`/api/settings/providers/${form.id}`, {
-        method: 'PUT',
-        body: payload
-      });
+      await apiRequest(`/api/settings/providers/${form.id}`, { method: 'PUT', body: payload });
       message.success('Provider已更新');
     } else {
-      await apiRequest('/api/settings/providers', {
-        method: 'POST',
-        body: payload
-      });
+      await apiRequest('/api/settings/providers', { method: 'POST', body: payload });
       message.success('Provider已创建');
     }
-
     resetForm();
     await loadProviders();
   } catch (error) {
@@ -249,14 +298,9 @@ async function saveProvider() {
 }
 
 async function removeProvider(row) {
-  if (!window.confirm(`确认删除Provider：${row.name} ?`)) {
-    return;
-  }
-
+  if (!window.confirm(`确认删除Provider：${row.name} ?`)) return;
   try {
-    await apiRequest(`/api/settings/providers/${row.id}`, {
-      method: 'DELETE'
-    });
+    await apiRequest(`/api/settings/providers/${row.id}`, { method: 'DELETE' });
     message.success('Provider已删除');
     await loadProviders();
   } catch (error) {
@@ -266,9 +310,7 @@ async function removeProvider(row) {
 
 async function loadModels(row) {
   try {
-    const data = await apiRequest(`/api/settings/providers/${row.id}/fetch-models`, {
-      method: 'POST'
-    });
+    const data = await apiRequest(`/api/settings/providers/${row.id}/fetch-models`, { method: 'POST' });
     models.value = data.models || [];
     if (models.value.length) {
       message.success(`拉取成功，共 ${models.value.length} 个模型`);
@@ -283,7 +325,7 @@ async function loadModels(row) {
 onMounted(async () => {
   if (sessionState.adminVerified) {
     try {
-      await loadProviders();
+      await Promise.all([loadProviders(), loadCampaignName()]);
     } catch (error) {
       message.error(error.message || '加载设置失败');
     }
@@ -292,7 +334,209 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.clickable-tag {
+.settings-page {
+  position: relative;
+}
+
+/* Admin Gate */
+.admin-gate {
+  max-width: 480px;
+  margin: 60px auto;
+  text-align: center;
+  padding: 40px;
+}
+
+.gate-icon {
+  font-size: 48px;
+  margin-bottom: 12px;
+  animation: float 3s ease-in-out infinite;
+}
+
+.gate-title {
+  font-family: 'Cinzel', 'LXGW WenKai', serif;
+  font-size: 22px;
+  color: var(--gold);
+  margin: 0 0 8px;
+}
+
+.gate-desc {
+  color: var(--text-secondary);
+  margin: 0 0 24px;
+  font-size: 14px;
+}
+
+.gate-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Provider form */
+.provider-form-card {
+  margin-bottom: 24px;
+}
+
+/* Campaign settings */
+.campaign-card {
+  margin-bottom: 24px;
+}
+
+.campaign-form {
+  display: flex;
+  gap: 12px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+
+.campaign-form .form-group {
+  flex: 1;
+  min-width: 240px;
+}
+
+.provider-form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+.span-2 {
+  grid-column: span 2;
+}
+
+@media (max-width: 640px) {
+  .provider-form-grid {
+    grid-template-columns: 1fr;
+  }
+  .span-2 {
+    grid-column: span 1;
+  }
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.form-label {
+  font-size: 13px;
+  color: var(--gold);
+  letter-spacing: 0.5px;
+}
+
+.form-actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* Providers list */
+.providers-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.provider-card {
+  padding: 20px;
+}
+
+.pc-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.pc-name {
+  font-family: 'Cinzel', 'LXGW WenKai', serif;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-bright);
+}
+
+.pc-badges {
+  display: flex;
+  gap: 6px;
+}
+
+.pc-details {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.pc-detail-row {
+  display: flex;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.pc-label {
+  color: var(--gold-dim);
+  min-width: 70px;
+  flex-shrink: 0;
+}
+
+.pc-url {
+  word-break: break-all;
+  color: var(--text-secondary);
+}
+
+.pc-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.icon-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius);
   cursor: pointer;
+  font-size: 14px;
+  display: inline-grid;
+  place-items: center;
+  transition: all var(--transition);
+}
+.icon-btn:hover {
+  border-color: var(--gold);
+  background: var(--gold-glow);
+}
+.icon-btn.danger:hover {
+  border-color: var(--danger);
+  background: var(--danger-soft);
+}
+
+/* Models panel */
+.models-panel {
+  margin-bottom: 24px;
+}
+
+.models-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.model-chip {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  padding: 6px 14px;
+  border-radius: 20px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 13px;
+  transition: all var(--transition);
+}
+.model-chip:hover {
+  border-color: var(--gold);
+  background: var(--gold-glow);
+  color: var(--gold);
 }
 </style>

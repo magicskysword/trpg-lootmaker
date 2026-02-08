@@ -80,11 +80,31 @@ async function initDb() {
       updated_at TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS app_settings (
+      key TEXT PRIMARY KEY,
+      value TEXT,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS transactions (
+      id TEXT PRIMARY KEY,
+      type TEXT NOT NULL DEFAULT 'income',
+      description TEXT NOT NULL,
+      gp_amount REAL NOT NULL DEFAULT 0,
+      item_value REAL NOT NULL DEFAULT 0,
+      total_value REAL NOT NULL DEFAULT 0,
+      note TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
     CREATE INDEX IF NOT EXISTS idx_characters_role ON characters(role);
     CREATE INDEX IF NOT EXISTS idx_allocations_item ON item_allocations(item_id);
     CREATE INDEX IF NOT EXISTS idx_allocations_character ON item_allocations(character_id);
     CREATE INDEX IF NOT EXISTS idx_buffs_character ON character_buffs(character_id);
     CREATE INDEX IF NOT EXISTS idx_loot_created_at ON loot_records(created_at);
+    CREATE INDEX IF NOT EXISTS idx_transactions_type ON transactions(type);
+    CREATE INDEX IF NOT EXISTS idx_transactions_created ON transactions(created_at);
   `);
 }
 

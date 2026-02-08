@@ -156,89 +156,161 @@ router.post('/publish', async (req, res, next) => {
       goldItems = [],
       distribution = {},
       note = '',
-      memo_text = ''
+      memo_text = '',
+      mode = 'loot'
     } = req.body || {};
 
     if (!Array.isArray(lootItems) || lootItems.length === 0) {
-      return res.status(400).json({ message: 'Loot项不能为空' });
+      return res.status(400).json({ message: '物品列表不能为空' });
     }
 
     const db = await getDb();
     const now = nowIso();
 
+    // Calculate total values for transaction record
+    const totalItemValue = lootItems.reduce(
+      (sum, x) => sum + Number(x.quantity || 0) * Number(x.unit_price || 0), 0
+    );
+    const totalGpAmount = goldItems.reduce((sum, x) => sum + Number(x.amount || 0), 0);
+
     await db.exec('BEGIN');
     try {
-      for (const item of lootItems) {
-        const id = uuidv4();
-        const quantity = Number(item.quantity || 0);
-        if (quantity <= 0) {
-          continue;
+      if (mode === 'expense') {
+        // ===== EXPENSE MODE: Remove items from warehouse, NO loot record =====
+        for (const item of lootItems) {
+          const warehouseId = item.warehouse_id;
+          const qty = Number(item.quantity || 0);
+          if (qty <= 0) continue;
+
+          if (warehouseId) {
+            // Remove specific item from warehouse
+            const existing = await db.get('SELECT id, quantity FROM items WHERE id = ?', [warehouseId]);
+            if (existing) {
+              const newQty = Number(existing.quantity) - qty;
+              if (newQty <= 0) {
+                // Delete item and its allocations
+                await db.run('DELETE FROM item_allocations WHERE item_id = ?', [warehouseId]);
+                await db.run('DELETE FROM items WHERE id = ?', [warehouseId]);
+              } else {
+                // Reduce quantity
+                await db.run('UPDATE items SET quantity = ?, updated_at = ? WHERE id = ?', [newQty, now, warehouseId]);
+                // Adjust allocations proportionally
+                const allocs = await db.all('SELECT id, quantity FROM item_allocations WHERE item_id = ?', [warehouseId]);
+                const totalAlloc = allocs.reduce((s, a) => s + Number(a.quantity), 0);
+                if (totalAlloc > newQty) {
+                  // Need to reduce allocations
+                  let remaining = newQty;
+                  for (const alloc of allocs) {
+                    const newAllocQty = Math.min(Number(alloc.quantity), remaining);
+                    if (newAllocQty <= 0) {
+                      await db.run('DELETE FROM item_allocations WHERE id = ?', [alloc.id]);
+                    } else {
+                      await db.run('UPDATE item_allocations SET quantity = ?, updated_at = ? WHERE id = ?', [newAllocQty, now, alloc.id]);
+                    }
+                    remaining -= newAllocQty;
+                  }
+                }
+              }
+            }
+          }
+          // If no warehouse_id, it's a manual expense entry - just record it in transaction
         }
 
+        // Create transaction record (expense)
+        const txId = uuidv4();
+        const itemNames = lootItems.map(x => x.name || '未命名').join(', ');
         await db.run(
-          `INSERT INTO items
-          (id, name, type, slot, quantity, unit_price, weight, description, display_description, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO transactions (id, type, description, gp_amount, item_value, total_value, note, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [txId, 'expense', `支出: ${itemNames}`, totalGpAmount, totalItemValue, totalGpAmount + totalItemValue, note, now, now]
+        );
+
+        await db.exec('COMMIT');
+        return res.status(201).json({ message: '支出已记录，物品已从仓库移除' });
+      } else {
+        // ===== LOOT MODE: Create items + loot record + transaction =====
+        for (const item of lootItems) {
+          const id = uuidv4();
+          const quantity = Number(item.quantity || 0);
+          if (quantity <= 0) {
+            continue;
+          }
+
+          await db.run(
+            `INSERT INTO items
+            (id, name, type, slot, quantity, unit_price, weight, description, display_description, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+              id,
+              item.name || '未命名物品',
+              item.type || '其他',
+              item.type === '装备' ? item.slot || null : null,
+              quantity,
+              Number(item.unit_price || 0),
+              Number(item.weight || 0),
+              item.description || '',
+              item.display_description || '',
+              now,
+              now
+            ]
+          );
+
+          const allocations = item.allocations || [];
+          const sumAllocated = allocations.reduce((sum, x) => sum + Number(x.quantity || 0), 0);
+          if (sumAllocated - quantity > 1e-9) {
+            throw new Error(`物品 ${item.name || '未命名'} 分配数量超过总数量`);
+          }
+
+          for (const alloc of allocations) {
+            const allocQty = Number(alloc.quantity || 0);
+            if (!alloc.characterId || allocQty <= 0) {
+              continue;
+            }
+
+            const existsChar = await db.get('SELECT id FROM characters WHERE id = ?', [alloc.characterId]);
+            if (!existsChar) {
+              continue;
+            }
+
+            await db.run(
+              `INSERT INTO item_allocations
+              (id, item_id, character_id, quantity, created_at, updated_at)
+              VALUES (?, ?, ?, ?, ?, ?)`,
+              [uuidv4(), id, alloc.characterId, allocQty, now, now]
+            );
+          }
+        }
+
+        // Create loot record
+        const recordId = uuidv4();
+        await db.run(
+          `INSERT INTO loot_records
+           (id, item_snapshot, gold_snapshot, distribution_snapshot, note, memo_text, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
           [
-            id,
-            item.name || '未命名物品',
-            item.type || '其他',
-            item.type === '装备' ? item.slot || null : null,
-            quantity,
-            Number(item.unit_price || 0),
-            Number(item.weight || 0),
-            item.description || '',
-            item.display_description || '',
+            recordId,
+            JSON.stringify(lootItems),
+            JSON.stringify(goldItems),
+            JSON.stringify(distribution),
+            note,
+            memo_text,
             now,
             now
           ]
         );
 
-        const allocations = item.allocations || [];
-        const sumAllocated = allocations.reduce((sum, x) => sum + Number(x.quantity || 0), 0);
-        if (sumAllocated - quantity > 1e-9) {
-          throw new Error(`物品 ${item.name || '未命名'} 分配数量超过总数量`);
-        }
+        // Create transaction record (income)
+        const txId = uuidv4();
+        const itemNames = lootItems.map(x => x.name || '未命名').join(', ');
+        await db.run(
+          `INSERT INTO transactions (id, type, description, gp_amount, item_value, total_value, note, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [txId, 'income', `Loot: ${itemNames}`, totalGpAmount, totalItemValue, totalGpAmount + totalItemValue, note, now, now]
+        );
 
-        for (const alloc of allocations) {
-          const allocQty = Number(alloc.quantity || 0);
-          if (!alloc.characterId || allocQty <= 0) {
-            continue;
-          }
-
-          const existsChar = await db.get('SELECT id FROM characters WHERE id = ?', [alloc.characterId]);
-          if (!existsChar) {
-            continue;
-          }
-
-          await db.run(
-            `INSERT INTO item_allocations
-            (id, item_id, character_id, quantity, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?)`,
-            [uuidv4(), id, alloc.characterId, allocQty, now, now]
-          );
-        }
+        await db.exec('COMMIT');
+        return res.status(201).json({ id: recordId, message: 'Loot已发布并写入仓库、记录与流水' });
       }
-
-      const recordId = uuidv4();
-      await db.run(
-        `INSERT INTO loot_records
-         (id, item_snapshot, gold_snapshot, distribution_snapshot, note, memo_text, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          recordId,
-          JSON.stringify(lootItems),
-          JSON.stringify(goldItems),
-          JSON.stringify(distribution),
-          note,
-          memo_text,
-          now,
-          now
-        ]
-      );
-
-      await db.exec('COMMIT');
-      return res.status(201).json({ id: recordId, message: 'Loot已发布并写入仓库与记录' });
     } catch (error) {
       await db.exec('ROLLBACK');
       throw error;

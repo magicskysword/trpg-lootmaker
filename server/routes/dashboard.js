@@ -10,7 +10,7 @@ router.get('/', async (req, res, next) => {
     const dm = await db.get(`
       SELECT id, name, role, color, portrait_path
       FROM characters
-      WHERE role = 'DM'
+      WHERE role = 'GM'
       ORDER BY created_at ASC
       LIMIT 1
     `);
@@ -51,6 +51,8 @@ router.get('/', async (req, res, next) => {
       ORDER BY c.created_at ASC
     `);
 
+    const campaignRow = await db.get("SELECT value FROM app_settings WHERE key = 'campaign_name'");
+
     res.json({
       dm: dm || null,
       plCharacters: plRows,
@@ -58,7 +60,8 @@ router.get('/', async (req, res, next) => {
         totalGpIncome,
         totalItemValue: Number(totalItemValueRow?.total || 0)
       },
-      plValues
+      plValues,
+      campaign_name: campaignRow?.value || ''
     });
   } catch (error) {
     next(error);
