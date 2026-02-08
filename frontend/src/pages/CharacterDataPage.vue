@@ -44,6 +44,13 @@
             />
             <n-button
               v-if="selectedItemIds.length"
+              size="small"
+              @click="openBatchTypeModal"
+            >
+              🏷 批量改类型 ({{ selectedItemIds.length }})
+            </n-button>
+            <n-button
+              v-if="selectedItemIds.length"
               type="error"
               size="small"
               @click="batchDeleteItems"
@@ -588,6 +595,30 @@
       @confirm="onAiConfirm"
     />
 
+    <!-- Batch Type Modal -->
+    <n-modal v-model:show="batchTypeModalShow" preset="card" title="🏷 批量修改物品类型" style="max-width: 460px">
+      <div class="batch-type-form">
+        <div class="muted">已选择 {{ selectedItemIds.length }} 个物品</div>
+        <div class="form-group" style="margin-top: 10px;">
+          <label class="form-label">目标类型</label>
+          <n-select
+            v-model:value="batchTypeTarget"
+            :options="itemTypeOptions"
+            placeholder="选择要修改的类型"
+          />
+        </div>
+        <div v-if="batchTypeTarget && batchTypeTarget !== '装备'" class="muted" style="margin-top: 8px; font-size: 12px;">
+          修改为非装备类型时，会自动清空槽位。
+        </div>
+      </div>
+      <template #footer>
+        <div class="modal-footer">
+          <n-button @click="batchTypeModalShow = false">取消</n-button>
+          <n-button type="primary" @click="confirmBatchTypeUpdate">确认修改</n-button>
+        </div>
+      </template>
+    </n-modal>
+
     <!-- Delete Confirmation Modal -->
     <n-modal v-model:show="deleteModalShow" preset="card" title="⚠ 删除确认" style="max-width: 480px">
       <div class="delete-confirm-form">
@@ -778,6 +809,47 @@ async function batchDeleteItems() {
   deleteAddTransaction.value = true;
   deleteNote.value = '';
   deleteModalShow.value = true;
+}
+
+// --- Batch type update ---
+const batchTypeModalShow = ref(false);
+const batchTypeTarget = ref('');
+
+function openBatchTypeModal() {
+  if (!selectedItemIds.value.length) return;
+  const selectedRows = items.value.filter((x) => selectedItemIds.value.includes(x.id));
+  const typeSet = new Set(selectedRows.map((x) => x.type).filter(Boolean));
+  batchTypeTarget.value = typeSet.size === 1 ? [...typeSet][0] : '';
+  batchTypeModalShow.value = true;
+}
+
+async function confirmBatchTypeUpdate() {
+  if (!batchTypeTarget.value) {
+    message.warning('请选择目标类型');
+    return;
+  }
+  const selectedRows = items.value.filter((x) => selectedItemIds.value.includes(x.id));
+  if (!selectedRows.length) {
+    batchTypeModalShow.value = false;
+    return;
+  }
+
+  try {
+    await Promise.all(selectedRows.map((row) => apiRequest(`/api/items/${row.id}`, {
+      method: 'PUT',
+      body: {
+        ...row,
+        type: batchTypeTarget.value,
+        slot: batchTypeTarget.value === '装备' ? row.slot || null : null
+      }
+    })));
+    message.success(`已批量修改 ${selectedRows.length} 个物品类型`);
+    batchTypeModalShow.value = false;
+    selectedItemIds.value = [];
+    await Promise.all([loadItems(), loadCharacters()]);
+  } catch (error) {
+    message.error(error.message || '批量修改类型失败');
+  }
 }
 
 // --- Inline Edit ---
@@ -1510,6 +1582,7 @@ onMounted(async () => {
 .tx-form { display: flex; flex-direction: column; gap: 14px; }
 .form-row { display: flex; gap: 12px; }
 .flex-1 { flex: 1; }
+.batch-type-form { display: flex; flex-direction: column; }
 
 /* New character form inside modal */
 .new-char-form { display: flex; flex-direction: column; gap: 12px; }

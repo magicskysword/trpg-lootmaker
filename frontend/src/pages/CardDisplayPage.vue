@@ -127,9 +127,9 @@
         <div class="display-section">
           <div class="section-header-display">
             <span class="section-icon">📦</span>
-            <span>其他物品</span>
+            <span>穿着 / 其他</span>
           </div>
-          <div v-if="!grouped(character).others.length" class="mini-empty">无其他物品</div>
+          <div v-if="!grouped(character).others.length" class="mini-empty">无穿着物品</div>
           <div v-else class="items-display-list">
             <article
               v-for="item in grouped(character).others"
@@ -174,7 +174,8 @@ function grouped(character) {
   const consumables = [];
   const others = [];
   for (const item of character.items || []) {
-    if (item.type === '装备') equipment.push(item);
+    const hasSlot = item.slot != null && String(item.slot).trim() !== '';
+    if (item.type === '装备' && hasSlot) equipment.push(item);
     else if (item.type === '药水' || item.type === '卷轴') consumables.push(item);
     else others.push(item);
   }
