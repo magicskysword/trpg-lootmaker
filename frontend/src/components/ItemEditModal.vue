@@ -82,6 +82,7 @@
     <template #footer>
       <div class="modal-footer">
         <n-button @click="$emit('update:show', false)">取消</n-button>
+        <n-button v-if="isEdit" @click="onSplit">✂ 拆分</n-button>
         <n-button type="primary" @click="onSave">
           {{ isEdit ? '保存修改' : '创建物品' }}
         </n-button>
@@ -99,7 +100,7 @@ const props = defineProps({
   item: Object
 });
 
-const emit = defineEmits(['update:show', 'save']);
+const emit = defineEmits(['update:show', 'save', 'split']);
 
 const isEdit = computed(() => Boolean(props.item?.id));
 
@@ -107,6 +108,7 @@ import { computed } from 'vue';
 
 const itemTypeOptions = [
   { label: '装备', value: '装备' },
+  { label: '金钱', value: '金钱' },
   { label: '药水', value: '药水' },
   { label: '卷轴', value: '卷轴' },
   { label: '其他', value: '其他' }
@@ -114,7 +116,7 @@ const itemTypeOptions = [
 
 const slotOptions = [
   '主手', '副手', '盔甲', '盾牌', '披风', '腰带',
-  '头环', '头部', '护符', '戒指1', '戒指2',
+  '头环', '头部', '护符', '戒指',
   '腕部', '胸部', '躯体', '眼睛', '脚部',
   '手套', '手臂', '奇物'
 ].map((x) => ({ label: x, value: x }));
@@ -151,6 +153,10 @@ watch(
 
 function onSave() {
   emit('save', { ...local });
+}
+
+function onSplit() {
+  emit('split', { ...local });
 }
 </script>
 

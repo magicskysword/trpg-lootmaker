@@ -50,6 +50,13 @@
               🏷 批量改类型 ({{ selectedItemIds.length }})
             </n-button>
             <n-button
+              v-if="selectedItemIds.length >= 2"
+              size="small"
+              @click="openMergeModal"
+            >
+              🧬 合并选中 ({{ selectedItemIds.length }})
+            </n-button>
+            <n-button
               v-if="selectedItemIds.length"
               type="error"
               size="small"
@@ -78,7 +85,7 @@
                   <th style="width:70px">重量</th>
                   <th style="width:130px">未分配</th>
                   <th>拥有者</th>
-                  <th style="width:130px">操作</th>
+                  <th style="width:170px">操作</th>
                 </tr>
               </thead>
               <tbody>
@@ -183,6 +190,7 @@
                   <td>
                     <div class="action-btns">
                       <button class="icon-btn" title="详细编辑" @click.stop="openItemModal(row)">📝</button>
+                      <button class="icon-btn" title="拆分" @click.stop="openSplitModal(row)">✂</button>
                       <button class="icon-btn" title="分配" @click.stop="openAllocate(row)">👤</button>
                       <button class="icon-btn danger" title="删除" @click.stop="removeItem(row)">🗑</button>
                     </div>
@@ -477,6 +485,7 @@
       v-model:show="itemModalShow"
       :item="itemModalData"
       @save="onItemModalSave"
+      @split="onItemModalSplit"
     />
 
     <!-- Allocation Modal -->
@@ -620,6 +629,69 @@
       </template>
     </n-modal>
 
+    <!-- Split Item Modal -->
+    <n-modal v-model:show="splitModalShow" preset="card" title="✂ 拆分物品" style="max-width: 420px">
+      <div class="split-form">
+        <div class="muted">物品：{{ splitState.item?.name || '-' }}</div>
+        <div class="muted">当前数量：{{ formatAmount(splitState.item?.quantity || 0) }}</div>
+        <div class="form-group" style="margin-top: 10px;">
+          <label class="form-label">拆分数量</label>
+          <n-input-number
+            v-model:value="splitState.quantity"
+            :min="0.01"
+            :max="splitMaxQuantity"
+            :precision="2"
+            style="width: 100%;"
+          />
+        </div>
+      </div>
+      <template #footer>
+        <div class="modal-footer">
+          <n-button @click="splitModalShow = false">取消</n-button>
+          <n-button type="primary" @click="confirmSplit">确认拆分</n-button>
+        </div>
+      </template>
+    </n-modal>
+
+    <!-- Merge Items Modal -->
+    <n-modal v-model:show="mergeModalShow" preset="card" title="🧬 合并物品" style="max-width: 520px">
+      <div class="merge-form">
+        <div class="muted">将合并 {{ mergeState.items.length }} 个物品</div>
+        <div v-if="mergeState.conflict" class="muted" style="margin-top: 8px; color: var(--danger);">
+          检测到选中物品数据不一致，请选择模板物品（名称/类型/槽位/价格/重量/描述将以模板为准）。
+        </div>
+        <div class="merge-items-list">
+          <label
+            v-for="it in mergeState.items"
+            :key="it.id"
+            class="merge-item-option"
+          >
+            <n-radio
+              :checked="mergeState.templateItemId === it.id"
+              :disabled="!mergeState.conflict"
+              @update:checked="(checked) => { if (checked) mergeState.templateItemId = it.id; }"
+            />
+            <div class="merge-item-meta">
+              <div class="merge-item-title">
+                <span class="type-badge small">{{ it.type }}</span>
+                <span>{{ it.name }}</span>
+                <span class="muted">×{{ formatAmount(it.quantity) }}</span>
+              </div>
+              <div class="muted" style="font-size: 12px;">
+                槽位: {{ it.slot || '-' }} · 单价: {{ it.unit_price }} gp · 重量: {{ it.weight }} lb
+              </div>
+            </div>
+          </label>
+        </div>
+      </div>
+      <template #footer>
+        <div class="modal-footer">
+          <n-button @click="mergeModalShow = false">取消</n-button>
+          <n-button type="primary" @click="confirmMerge">确认合并</n-button>
+        </div>
+      </template>
+    </n-modal>
+
     <!-- Delete Confirmation Modal -->
     <n-modal v-model:show="deleteModalShow" preset="card" title="⚠ 删除确认" style="max-width: 480px">
       <div class="delete-confirm-form">
@@ -688,6 +760,7 @@ const selectedItemIds = ref([]);
 
 const itemTypeOptions = [
   { label: '装备', value: '装备' },
+  { label: '金钱', value: '金钱' },
   { label: '药水', value: '药水' },
   { label: '卷轴', value: '卷轴' },
   { label: '其他', value: '其他' }
@@ -762,6 +835,25 @@ function formatAmount(value) {
   const num = Number(value || 0);
   if (!Number.isFinite(num)) return '0';
   return num.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+}
+
+function normalizeMergeSlot(slot) {
+  const text = String(slot || '').trim();
+  if (!text) return '';
+  if (text.startsWith('戒指')) return '戒指';
+  return text;
+}
+
+function mergeComparableSignature(item) {
+  return JSON.stringify([
+    String(item?.name || '').trim(),
+    String(item?.type || '').trim(),
+    normalizeMergeSlot(item?.slot),
+    Number(item?.unit_price || 0),
+    Number(item?.weight || 0),
+    String(item?.description || '').trim(),
+    String(item?.display_description || '').trim()
+  ]);
 }
 
 const filteredItems = computed(() => {
@@ -901,6 +993,119 @@ async function confirmBatchTypeUpdate() {
   }
 }
 
+// --- Split item ---
+const splitModalShow = ref(false);
+const splitState = reactive({ item: null, quantity: 1 });
+
+const splitMaxQuantity = computed(() => {
+  const row = splitState.item;
+  if (!row) return 0;
+  const max = getRemainingQuantity(row);
+  return Number.isFinite(max) ? Math.max(0, max) : 0;
+});
+
+function openSplitModal(row) {
+  const quantity = Number(row?.quantity || 0);
+  if (quantity <= 1) {
+    message.warning('当前数量不足以拆分');
+    return;
+  }
+  const remaining = getRemainingQuantity(row);
+  if (remaining <= 0) {
+    message.warning('该物品无未分配数量，无法拆分');
+    return;
+  }
+  splitState.item = row;
+  splitState.quantity = Math.min(Math.max(1, Math.floor(quantity / 2)), remaining);
+  splitModalShow.value = true;
+}
+
+async function confirmSplit() {
+  if (!splitState.item) return;
+  const qty = Number(splitState.quantity || 0);
+  if (!Number.isFinite(qty) || qty <= 0) {
+    message.warning('请输入有效拆分数量');
+    return;
+  }
+  try {
+    await apiRequest(`/api/items/${splitState.item.id}/split`, {
+      method: 'POST',
+      body: { quantity: qty }
+    });
+    message.success('物品已拆分');
+    splitModalShow.value = false;
+    splitState.item = null;
+    splitState.quantity = 1;
+    await Promise.all([loadItems(), loadCharacters()]);
+  } catch (error) {
+    message.error(error.message || '拆分失败');
+  }
+}
+
+// --- Merge items ---
+const mergeModalShow = ref(false);
+const mergeState = reactive({
+  items: [],
+  conflict: false,
+  templateItemId: ''
+});
+
+function openMergeModal() {
+  const selectedRows = items.value.filter((x) => selectedItemIds.value.includes(x.id));
+  if (selectedRows.length < 2) {
+    message.warning('请至少选择两个物品');
+    return;
+  }
+  const signatures = selectedRows.map((x) => mergeComparableSignature(x));
+  const conflict = signatures.some((x) => x !== signatures[0]);
+  mergeState.items = selectedRows.map((x) => ({ ...x }));
+  mergeState.conflict = conflict;
+  mergeState.templateItemId = selectedRows[0].id;
+  mergeModalShow.value = true;
+}
+
+async function confirmMerge() {
+  if (mergeState.items.length < 2) {
+    mergeModalShow.value = false;
+    return;
+  }
+  if (mergeState.conflict && !mergeState.templateItemId) {
+    message.warning('请选择模板物品');
+    return;
+  }
+  try {
+    await apiRequest('/api/items/merge', {
+      method: 'POST',
+      body: {
+        itemIds: mergeState.items.map((x) => x.id),
+        templateItemId: mergeState.conflict ? mergeState.templateItemId : null
+      }
+    });
+    message.success('物品已合并');
+    mergeModalShow.value = false;
+    mergeState.items = [];
+    mergeState.conflict = false;
+    mergeState.templateItemId = '';
+    selectedItemIds.value = [];
+    await Promise.all([loadItems(), loadCharacters()]);
+  } catch (error) {
+    if (error.status === 409 && error.payload?.requires_template) {
+      mergeState.conflict = true;
+      const list = Array.isArray(error.payload.items) ? error.payload.items : [];
+      if (list.length) {
+        mergeState.items = list;
+        if (!mergeState.templateItemId || !list.some((x) => x.id === mergeState.templateItemId)) {
+          mergeState.templateItemId = list[0].id;
+        }
+      }
+      mergeModalShow.value = true;
+      message.warning(error.payload.message || '请选择模板物品后再合并');
+      return;
+    }
+    message.error(error.message || '合并失败');
+  }
+}
+
 // --- Inline Edit ---
 const editingCell = reactive({ id: '', field: '' });
 
@@ -946,6 +1151,12 @@ async function onItemModalSave(data) {
   } catch (error) {
     message.error(error.message || '保存物品失败');
   }
+}
+
+function onItemModalSplit(data) {
+  itemModalShow.value = false;
+  const row = items.value.find((x) => x.id === data?.id) || data;
+  openSplitModal(row);
 }
 
 // --- Allocation ---
@@ -1629,6 +1840,30 @@ onMounted(async () => {
 .form-row { display: flex; gap: 12px; }
 .flex-1 { flex: 1; }
 .batch-type-form { display: flex; flex-direction: column; }
+.split-form { display: flex; flex-direction: column; }
+.merge-form { display: flex; flex-direction: column; gap: 8px; }
+.merge-items-list {
+  max-height: 280px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 6px;
+}
+.merge-item-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px;
+  border-radius: 6px;
+}
+.merge-item-option:hover { background: rgba(201, 168, 76, 0.05); }
+.merge-item-meta { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.merge-item-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-primary);
+}
 
 /* New character form inside modal */
 .new-char-form { display: flex; flex-direction: column; gap: 12px; }

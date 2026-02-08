@@ -2,6 +2,12 @@ const express = require('express');
 const { v4: uuidv4 } = require('uuid');
 const { getDb } = require('../db');
 const { nowIso } = require('../utils/time');
+const {
+  MONEY_TYPE,
+  normalizeMoneyName,
+  mergeMoneyItems,
+  mergeItemsByIds
+} = require('../services/itemMerge');
 
 const router = express.Router();
 
@@ -99,17 +105,68 @@ router.post('/', async (req, res, next) => {
         now
       ]
     );
+    if (type === MONEY_TYPE) {
+      await mergeMoneyItems(db, { names: [name] });
+    }
 
-    const created = await db.get('SELECT * FROM items WHERE id = ?', [id]);
-    return res.status(201).json({
-      ...created,
-      quantity: Number(created.quantity),
-      unit_price: Number(created.unit_price),
-      weight: Number(created.weight),
-      allocations: [],
-      allocated_quantity: 0,
-      remaining_quantity: Number(created.quantity)
-    });
+    const view = await loadItemsView(db);
+    let created = view.find((x) => x.id === id);
+    if (type === MONEY_TYPE) {
+      const key = normalizeMoneyName(name);
+      created = view.find((x) => x.type === MONEY_TYPE && normalizeMoneyName(x.name) === key) || created;
+    }
+
+    if (!created) {
+      return res.status(500).json({ message: '创建后未找到物品数据' });
+    }
+    return res.status(201).json(created);
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.post('/merge', async (req, res, next) => {
+  try {
+    const db = await getDb();
+    const { itemIds = [], templateItemId = null } = req.body || {};
+    const uniqueIds = [...new Set((Array.isArray(itemIds) ? itemIds : []).filter(Boolean))];
+    if (uniqueIds.length < 2) {
+      return res.status(400).json({ message: '至少需要选择两个物品进行合并' });
+    }
+
+    await db.exec('BEGIN');
+    try {
+      const result = await mergeItemsByIds(db, uniqueIds, {
+        templateItemId: templateItemId || null,
+        requireTemplateWhenIncompatible: true
+      });
+      const mergedRow = await db.get('SELECT id, name, type FROM items WHERE id = ?', [result.mergedItemId]);
+      if (mergedRow?.type === MONEY_TYPE) {
+        await mergeMoneyItems(db, { names: [mergedRow.name] });
+      }
+      await db.exec('COMMIT');
+
+      const items = await loadItemsView(db);
+      const merged = items.find((x) => x.id === result.mergedItemId);
+      return res.json({
+        item: merged || null,
+        merged_ids: result.mergedItemIds,
+        conflict: result.conflict
+      });
+    } catch (error) {
+      await db.exec('ROLLBACK');
+      if (error.code === 'MERGE_TEMPLATE_REQUIRED') {
+        return res.status(409).json({
+          message: '选中物品存在差异，请选择一个模板物品后再合并',
+          requires_template: true,
+          items: error.items || []
+        });
+      }
+      if (error.status) {
+        return res.status(error.status).json({ message: error.message });
+      }
+      throw error;
+    }
   } catch (error) {
     return next(error);
   }
@@ -136,6 +193,7 @@ router.put('/:id', async (req, res, next) => {
     } = req.body || {};
 
     const nextType = type ?? target.type;
+    const nextName = name ?? target.name;
     const nextSlot = nextType === EQUIP_TYPE ? slot ?? target.slot : null;
 
     await db.run(
@@ -156,33 +214,21 @@ router.put('/:id', async (req, res, next) => {
       ]
     );
 
-    const updated = await db.get('SELECT * FROM items WHERE id = ?', [id]);
-    const allocations = await db.all(
-      `SELECT a.id, a.character_id, c.name AS character_name, c.color AS character_color, a.quantity
-       FROM item_allocations a
-       JOIN characters c ON c.id = a.character_id
-       WHERE a.item_id = ?
-       ORDER BY a.created_at ASC`,
-      [id]
-    );
+    if (target.type === MONEY_TYPE || nextType === MONEY_TYPE) {
+      await mergeMoneyItems(db, { names: [target.name, nextName] });
+    }
 
-    const allocated = allocations.reduce((sum, row) => sum + Number(row.quantity), 0);
+    const view = await loadItemsView(db);
+    let updated = view.find((x) => x.id === id);
+    if (nextType === MONEY_TYPE) {
+      const key = normalizeMoneyName(nextName);
+      updated = view.find((x) => x.type === MONEY_TYPE && normalizeMoneyName(x.name) === key) || updated;
+    }
 
-    return res.json({
-      ...updated,
-      quantity: Number(updated.quantity),
-      unit_price: Number(updated.unit_price),
-      weight: Number(updated.weight),
-      allocations: allocations.map((row) => ({
-        id: row.id,
-        character_id: row.character_id,
-        character_name: row.character_name,
-        character_color: row.character_color,
-        quantity: Number(row.quantity)
-      })),
-      allocated_quantity: allocated,
-      remaining_quantity: Number(updated.quantity) - allocated
-    });
+    if (!updated) {
+      return res.status(404).json({ message: '更新后物品不存在，可能已合并到同名金钱条目' });
+    }
+    return res.json(updated);
   } catch (error) {
     return next(error);
   }
@@ -200,6 +246,81 @@ router.delete('/:id', async (req, res, next) => {
 
     await db.run('DELETE FROM items WHERE id = ?', [id]);
     return res.json({ message: '物品已删除' });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.post('/:id/split', async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { quantity } = req.body || {};
+    const splitQuantity = Number(quantity);
+    if (!Number.isFinite(splitQuantity) || splitQuantity <= 0) {
+      return res.status(400).json({ message: '拆分数量必须大于0' });
+    }
+
+    const db = await getDb();
+    const target = await db.get('SELECT * FROM items WHERE id = ?', [id]);
+    if (!target) {
+      return res.status(404).json({ message: '物品不存在' });
+    }
+    if (target.type === MONEY_TYPE) {
+      return res.status(400).json({ message: '金钱类型会自动合并，不支持拆分' });
+    }
+
+    const totalQuantity = Number(target.quantity || 0);
+    if (splitQuantity >= totalQuantity) {
+      return res.status(400).json({ message: `拆分数量必须小于当前数量 ${totalQuantity}` });
+    }
+
+    const allocations = await db.all(
+      'SELECT quantity FROM item_allocations WHERE item_id = ?',
+      [id]
+    );
+    const allocated = allocations.reduce((sum, row) => sum + Number(row.quantity || 0), 0);
+    const remaining = totalQuantity - allocated;
+    if (splitQuantity > remaining + 1e-9) {
+      return res.status(400).json({ message: `拆分数量超出未分配数量，当前最多可拆 ${remaining}` });
+    }
+
+    const now = nowIso();
+    const newItemId = uuidv4();
+    await db.exec('BEGIN');
+    try {
+      await db.run(
+        'UPDATE items SET quantity = ?, updated_at = ? WHERE id = ?',
+        [totalQuantity - splitQuantity, now, id]
+      );
+      await db.run(
+        `INSERT INTO items
+        (id, name, type, slot, quantity, unit_price, weight, description, display_description, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          newItemId,
+          target.name,
+          target.type,
+          target.type === EQUIP_TYPE ? target.slot : null,
+          splitQuantity,
+          Number(target.unit_price || 0),
+          Number(target.weight || 0),
+          target.description || '',
+          target.display_description || '',
+          now,
+          now
+        ]
+      );
+      await db.exec('COMMIT');
+    } catch (error) {
+      await db.exec('ROLLBACK');
+      throw error;
+    }
+
+    const items = await loadItemsView(db);
+    return res.json({
+      source_item: items.find((x) => x.id === id) || null,
+      created_item: items.find((x) => x.id === newItemId) || null
+    });
   } catch (error) {
     return next(error);
   }

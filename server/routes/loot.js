@@ -2,6 +2,7 @@ const express = require('express');
 const { v4: uuidv4 } = require('uuid');
 const { getDb } = require('../db');
 const { nowIso } = require('../utils/time');
+const { MONEY_TYPE, mergeMoneyItems } = require('../services/itemMerge');
 
 const router = express.Router();
 
@@ -229,6 +230,7 @@ router.post('/publish', async (req, res, next) => {
         return res.status(201).json({ message: '支出已记录，物品已从仓库移除' });
       } else {
         // ===== LOOT MODE: Create items + loot record + transaction =====
+        const moneyNames = [];
         for (const item of lootItems) {
           const id = uuidv4();
           const quantity = Number(item.quantity || 0);
@@ -254,6 +256,9 @@ router.post('/publish', async (req, res, next) => {
               now
             ]
           );
+          if ((item.type || '') === MONEY_TYPE) {
+            moneyNames.push(item.name || '');
+          }
 
           const allocations = item.allocations || [];
           const sumAllocated = allocations.reduce((sum, x) => sum + Number(x.quantity || 0), 0);
@@ -279,6 +284,10 @@ router.post('/publish', async (req, res, next) => {
               [uuidv4(), id, alloc.characterId, allocQty, now, now]
             );
           }
+        }
+
+        if (moneyNames.length) {
+          await mergeMoneyItems(db, { names: moneyNames });
         }
 
         // Create loot record

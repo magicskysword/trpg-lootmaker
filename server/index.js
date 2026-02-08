@@ -5,8 +5,10 @@ const session = require('express-session');
 const SQLiteStoreFactory = require('connect-sqlite3');
 
 const config = require('./config');
+const { getDb } = require('./db');
 const { initDb } = require('./db/init');
 const { cleanupTempDirs } = require('./services/tempCleanup');
+const { mergeMoneyItems } = require('./services/itemMerge');
 const { requireLogin, requireAdmin } = require('./middleware/auth');
 
 const authRoutes = require('./routes/auth');
@@ -22,6 +24,12 @@ const SQLiteStore = SQLiteStoreFactory(session);
 
 async function bootstrap() {
   await initDb();
+  const db = await getDb();
+  const mergedGroups = await mergeMoneyItems(db);
+  const mergedCount = mergedGroups.filter((x) => x.merged).length;
+  if (mergedCount > 0) {
+    console.log(`Startup merge completed: ${mergedCount} 金钱分组已合并`);
+  }
   cleanupTempDirs();
   setInterval(cleanupTempDirs, 12 * 60 * 60 * 1000);
 
