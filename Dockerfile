@@ -18,8 +18,6 @@ COPY --from=build /app/package*.json ./
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/server ./server
 COPY --from=build /app/frontend/dist ./frontend/dist
-COPY --from=build /app/data ./data
-COPY --from=build /app/temp ./temp
 COPY --from=build /app/.env.example ./.env.example
 
 RUN mkdir -p /app/data/image /app/temp
