@@ -31,8 +31,6 @@
               <n-button type="primary" @click="addLootItem">✦ 新增Loot</n-button>
               <n-button @click="openAiModal">🤖 AI录入</n-button>
               <div class="spacer"></div>
-              <n-select v-model:value="lootAutoRule" :options="ruleOptions" style="min-width: 170px" />
-              <n-button @click="autoAssign">⚖ 自动分配</n-button>
               <n-button quaternary @click="clearLootDraft" class="danger-text">🗑 清空草稿</n-button>
               <n-button type="primary" :loading="publishing" @click="publishLoot">📜 发布Loot</n-button>
             </div>
@@ -41,9 +39,27 @@
             </div>
           </div>
 
+          <!-- Notes (above pool) -->
+          <div class="ornate-frame notes-section">
+            <h3 class="section-title">📝 备注</h3>
+            <n-input
+              v-model:value="lootNote"
+              type="textarea"
+              placeholder="发布备注（会写入记录）"
+              :autosize="{ minRows: 2, maxRows: 4 }"
+            />
+            <n-input
+              v-model:value="lootMemoText"
+              type="textarea"
+              placeholder="纯文本备忘录"
+              :autosize="{ minRows: 2, maxRows: 4 }"
+              style="margin-top: 8px"
+            />
+          </div>
+
           <!-- Unallocated Items Pool -->
           <div
-            class="ornate-frame loot-table-wrap pool-area"
+            class="ornate-frame pool-area pool-area-expand"
             @dragover.prevent="poolDragOver = true"
             @dragleave="poolDragOver = false"
             @drop.prevent="onDropToPool"
@@ -51,7 +67,11 @@
           >
             <div class="pool-header">
               <h3 class="section-title">📦 未分配物品池</h3>
-              <span class="pool-count">{{ lootUnallocatedItems.length }} 项</span>
+              <div class="pool-header-right">
+                <n-select v-model:value="lootAutoRule" :options="ruleOptions" size="small" style="min-width: 150px" />
+                <n-button size="small" @click="autoAssign">⚖ 自动分配</n-button>
+                <span class="pool-count">{{ lootUnallocatedItems.length }} 项</span>
+              </div>
             </div>
             <table class="fantasy-table loot-table" v-if="lootUnallocatedItems.length">
               <thead>
@@ -105,24 +125,6 @@
             <div v-else class="empty-hint">
               {{ poolDragOver ? '🎯 松开以放回物品池' : '暂无物品，点击上方「新增」或从右侧拖回' }}
             </div>
-          </div>
-
-          <!-- Notes -->
-          <div class="ornate-frame notes-section">
-            <h3 class="section-title">📝 备注 & 备忘</h3>
-            <n-input
-              v-model:value="lootNote"
-              type="textarea"
-              placeholder="发布备注（会写入记录）"
-              :autosize="{ minRows: 2, maxRows: 4 }"
-            />
-            <n-input
-              v-model:value="lootMemoText"
-              type="textarea"
-              placeholder="纯文本备忘录"
-              :autosize="{ minRows: 2, maxRows: 4 }"
-              style="margin-top: 8px"
-            />
           </div>
         </div>
 
@@ -179,6 +181,7 @@
     <!-- ==================== EXPENSE MODE ==================== -->
     <template v-if="mode === 'expense'">
       <div class="expense-layout">
+        <!-- LEFT: Expense Items -->
         <div class="loot-main">
           <!-- Toolbar -->
           <div class="ornate-frame toolbar-bar">
@@ -194,8 +197,19 @@
             </div>
           </div>
 
+          <!-- Notes (above items) -->
+          <div class="ornate-frame notes-section">
+            <h3 class="section-title">📝 备注</h3>
+            <n-input
+              v-model:value="expenseNote"
+              type="textarea"
+              placeholder="支出备注（会写入流水记录）"
+              :autosize="{ minRows: 2, maxRows: 4 }"
+            />
+          </div>
+
           <!-- Expense Items -->
-          <div class="ornate-frame loot-table-wrap pool-area">
+          <div class="ornate-frame pool-area pool-area-expand">
             <div class="pool-header">
               <h3 class="section-title">📤 支出物品列表</h3>
               <span class="pool-count">{{ expenseItems.length }} 项</span>
@@ -255,16 +269,38 @@
               暂无支出项，点击上方「新增支出」或使用「AI录入」
             </div>
           </div>
+        </div>
 
-          <!-- Expense Notes -->
-          <div class="ornate-frame notes-section">
-            <h3 class="section-title">📝 备注</h3>
-            <n-input
-              v-model:value="expenseNote"
-              type="textarea"
-              placeholder="支出备注（会写入流水记录）"
-              :autosize="{ minRows: 2, maxRows: 4 }"
-            />
+        <!-- RIGHT: Warehouse Overview -->
+        <div class="expense-sidebar">
+          <div class="ornate-frame warehouse-overview-panel">
+            <h3 class="section-title">🏠 仓库物品概览</h3>
+            <div v-if="!warehouseItems.length" class="empty-hint" style="padding:12px">仓库暂无物品</div>
+            <div v-else class="warehouse-overview-list">
+              <div
+                v-for="(wItem, idx) in warehouseOverview"
+                :key="wItem.id"
+                class="warehouse-overview-row"
+                :class="{ 'wo-removed': wItem.removedAll, 'wo-changed': wItem.qtyReduced > 0 && !wItem.removedAll }"
+              >
+                <span class="wo-seq">#{{ idx + 1 }}</span>
+                <span class="wo-name">{{ wItem.name }}</span>
+                <span class="wo-type">{{ wItem.type }}</span>
+                <span class="wo-qty">
+                  <template v-if="wItem.removedAll">
+                    <s>×{{ wItem.originalQty }}</s> → 0
+                  </template>
+                  <template v-else-if="wItem.qtyReduced > 0">
+                    ×{{ wItem.originalQty }} → ×{{ wItem.originalQty - wItem.qtyReduced }}
+                    <span class="wo-diff">(-{{ wItem.qtyReduced }})</span>
+                  </template>
+                  <template v-else>
+                    ×{{ wItem.originalQty }}
+                  </template>
+                </span>
+                <span class="wo-price">{{ wItem.unit_price }}gp</span>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -672,6 +708,30 @@ const warehouseSelectOptions = computed(() =>
   }))
 );
 
+// Warehouse overview for expense right sidebar
+const warehouseOverview = computed(() => {
+  // Build a map of warehouse_id -> total quantity being expensed
+  const expenseMap = {};
+  for (const item of expenseItems.value) {
+    if (item.warehouse_id) {
+      expenseMap[item.warehouse_id] = (expenseMap[item.warehouse_id] || 0) + Number(item.quantity || 0);
+    }
+  }
+  return warehouseItems.value.map((w) => {
+    const originalQty = Number(w.quantity || 0);
+    const expensedQty = expenseMap[w.id] || 0;
+    return {
+      id: w.id,
+      name: w.name,
+      type: w.type,
+      unit_price: w.unit_price,
+      originalQty,
+      qtyReduced: Math.min(expensedQty, originalQty),
+      removedAll: expensedQty >= originalQty && expensedQty > 0
+    };
+  });
+});
+
 function newExpenseItem() {
   return {
     client_id: uid(),
@@ -957,7 +1017,13 @@ onMounted(async () => {
 }
 
 .expense-layout {
-  max-width: 1000px;
+  display: grid;
+  grid-template-columns: 1fr 350px;
+  gap: 20px;
+  align-items: start;
+}
+@media (max-width: 1100px) {
+  .expense-layout { grid-template-columns: 1fr; }
 }
 
 /* Toolbar */
@@ -971,10 +1037,12 @@ onMounted(async () => {
 .danger-text { color: var(--danger) !important; }
 
 /* Pool area */
-.pool-area { padding: 12px; margin-bottom: 16px; overflow-x: auto; transition: all 0.3s; }
+.pool-area { padding: 12px; margin-bottom: 16px; transition: all 0.3s; }
+.pool-area-expand { overflow: visible; }
 .pool-highlight { border-color: var(--gold) !important; background: var(--gold-glow) !important; }
 .pool-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
 .pool-count { font-size: 12px; color: var(--text-secondary); }
+.pool-header-right { display: flex; align-items: center; gap: 8px; }
 
 /* Table */
 .loot-table { width: 100%; border-collapse: collapse; font-size: 13px; }
@@ -1071,6 +1139,33 @@ onMounted(async () => {
   flex-direction: column;
   gap: 4px;
 }
+
+/* Expense Sidebar */
+.expense-sidebar { display: flex; flex-direction: column; gap: 16px; }
+.warehouse-overview-panel { padding: 16px; }
+.warehouse-overview-list { display: flex; flex-direction: column; gap: 2px; }
+.warehouse-overview-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 8px; border-radius: var(--radius);
+  font-size: 12px; border-bottom: 1px solid var(--border-dim);
+  transition: all 0.3s;
+}
+.warehouse-overview-row:last-child { border-bottom: none; }
+.warehouse-overview-row.wo-removed {
+  opacity: 0.45;
+  text-decoration: line-through;
+  color: var(--text-dim);
+}
+.warehouse-overview-row.wo-changed {
+  background: rgba(201, 168, 76, 0.08);
+  border-color: var(--gold-dim);
+}
+.wo-seq { color: var(--gold); font-weight: 700; font-family: 'Cinzel', serif; min-width: 28px; }
+.wo-name { flex: 1; font-weight: 500; color: var(--text-bright); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wo-type { color: var(--arcane-bright); font-size: 11px; min-width: 32px; }
+.wo-qty { color: var(--gold); min-width: 80px; text-align: right; }
+.wo-diff { color: var(--danger); font-weight: 600; }
+.wo-price { color: var(--text-secondary); font-size: 11px; min-width: 50px; text-align: right; }
 
 /* Ambient particles */
 .ambient-particles { position: fixed; inset: 0; pointer-events: none; z-index: 0; overflow: hidden; }
