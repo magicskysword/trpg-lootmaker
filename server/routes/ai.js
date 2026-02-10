@@ -11,13 +11,19 @@ const DEFAULT_SLOT_OPTIONS = [
   '躯体', '眼睛', '脚部', '手套', '手臂', '奇物'
 ];
 
+// ===== Data Structure Templates =====
+
+const LOOT_STRUCTURE = '{"loot_items":[{"name":"","type":"","slot":null,"quantity":1,"unit_price":0,"weight":0,"description":""}],"note":""}';
+const EXPENSE_STRUCTURE = '{"items":[{"seq":1,"quantity":1}]}';
+const CHARACTER_STRUCTURE = '{"character":{"name":"","role":"PL","color":"#5B8FF9"},"buffs":[{"level":"天级","name":"","resource_note":"","description":""}],"items":[{"name":"","type":"其他","slot":null,"quantity":1,"unit_price":0,"weight":0,"description":""}]}';
+
 // ===== Default Prompts (used when no custom prompt is configured) =====
 
 const DEFAULT_LOOT_PROMPT = [
   '你是TRPG Loot解析助手。',
   '{{game_rules}}',
   '请把输入解析成严格JSON，不要输出任何JSON以外文字。',
-  'JSON结构：{"loot_items":[{"name":"","type":"","slot":null,"quantity":1,"unit_price":0,"weight":0,"description":""}],"note":""}',
+  'JSON结构：{{loot_structure}}',
   '当前仓库已有type：{{types}}。',
   'type必须从上述列表中选择；若不确定，使用"其他"。',
   '当前仓库已有装备槽位：{{slots}}。',
@@ -32,7 +38,7 @@ const DEFAULT_EXPENSE_PROMPT = [
   '用户会提供一份库存列表，格式为：#序号 物品名 ×数量',
   '用户会告诉你哪些物品需要支出以及支出数量。',
   '请把输入解析成严格JSON，不要输出任何JSON以外文字。',
-  'JSON结构：{"items":[{"seq":1,"quantity":1}]}',
+  'JSON结构：{{expense_structure}}',
   'seq是库存列表中的序号（正整数），quantity是支出数量（正整数）。',
   '所有数量必须使用正数。',
   '只输出用户明确提到要支出的物品，不要输出库存列表中未提及的物品。'
@@ -42,9 +48,16 @@ const DEFAULT_CHARACTER_PROMPT = [
   '你是TRPG 角色资料解析助手。',
   '{{game_rules}}',
   '请把输入解析成严格JSON，不要输出任何JSON以外文字。',
-  'JSON结构：{"character":{"name":"","role":"PL","color":"#5B8FF9"},"buffs":[{"level":"天级","name":"","resource_note":"","description":""}],"items":[{"name":"","type":"其他","slot":null,"quantity":1,"unit_price":0,"weight":0,"description":""}]}',
+  'JSON结构：{{character_structure}}',
   'role可选：GM、PL、其他。'
 ].join('\n');
+
+// Export defaults for settings route
+const PROMPT_DEFAULTS = {
+  prompt_loot: DEFAULT_LOOT_PROMPT,
+  prompt_expense: DEFAULT_EXPENSE_PROMPT,
+  prompt_character: DEFAULT_CHARACTER_PROMPT
+};
 
 // ===== Template Injection =====
 
@@ -106,7 +119,13 @@ async function buildFinalPrompt(db, promptKey, defaultPrompt, extraVars = {}) {
   const customPrompt = await loadCustomPrompt(db, promptKey);
   const template = customPrompt || defaultPrompt;
   const gameRules = await loadGameRules(db);
-  return applyTemplate(template, { game_rules: gameRules, ...extraVars });
+  return applyTemplate(template, {
+    game_rules: gameRules,
+    loot_structure: LOOT_STRUCTURE,
+    expense_structure: EXPENSE_STRUCTURE,
+    character_structure: CHARACTER_STRUCTURE,
+    ...extraVars
+  });
 }
 
 
@@ -297,3 +316,4 @@ router.post('/parse-character', async (req, res, next) => {
 });
 
 module.exports = router;
+module.exports.PROMPT_DEFAULTS = PROMPT_DEFAULTS;

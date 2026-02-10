@@ -244,6 +244,21 @@
                     <td>全部</td>
                   </tr>
                   <tr>
+                    <td><code v-pre>{{loot_structure}}</code></td>
+                    <td>Loot 解析的 JSON 数据结构模板</td>
+                    <td>全部</td>
+                  </tr>
+                  <tr>
+                    <td><code v-pre>{{expense_structure}}</code></td>
+                    <td>支出解析的 JSON 数据结构模板</td>
+                    <td>全部</td>
+                  </tr>
+                  <tr>
+                    <td><code v-pre>{{character_structure}}</code></td>
+                    <td>角色解析的 JSON 数据结构模板</td>
+                    <td>全部</td>
+                  </tr>
+                  <tr>
                     <td><code v-pre>{{types}}</code></td>
                     <td>仓库中已有的物品类型列表（自动生成）</td>
                     <td>Loot 解析</td>
@@ -258,43 +273,29 @@
             </div>
 
             <div class="prompt-editors">
-              <div class="prompt-editor-block">
+              <div v-for="item in promptEditors" :key="item.key" class="prompt-editor-block">
                 <div class="prompt-header">
-                  <label>📥 Loot 解析提示词</label>
-                  <n-button size="tiny" quaternary @click="resetPrompt('prompt_loot')">↺ 恢复默认</n-button>
+                  <label>{{ item.icon }} {{ item.label }}</label>
+                  <n-button size="tiny" quaternary @click="resetPrompt(item.key)">↺ 恢复默认</n-button>
                 </div>
                 <n-input
-                  v-model:value="prompts.prompt_loot"
+                  v-model:value="prompts[item.key]"
                   type="textarea"
                   :autosize="{ minRows: 4, maxRows: 12 }"
-                  placeholder="留空使用默认提示词"
+                  placeholder="留空则使用下方默认提示词"
                 />
-              </div>
-
-              <div class="prompt-editor-block">
-                <div class="prompt-header">
-                  <label>📤 支出解析提示词</label>
-                  <n-button size="tiny" quaternary @click="resetPrompt('prompt_expense')">↺ 恢复默认</n-button>
+                <div class="default-prompt-ref">
+                  <div
+                    class="default-prompt-toggle"
+                    @click="toggleDefaultRef(item.key)"
+                  >
+                    <span class="toggle-arrow" :class="{ open: expandedDefaults[item.key] }">▶</span>
+                    <span>查看默认提示词（修改参考）</span>
+                  </div>
+                  <div v-show="expandedDefaults[item.key]" class="default-prompt-content">
+                    <pre class="default-prompt-pre">{{ promptDefaults[item.key] || '加载中…' }}</pre>
+                  </div>
                 </div>
-                <n-input
-                  v-model:value="prompts.prompt_expense"
-                  type="textarea"
-                  :autosize="{ minRows: 4, maxRows: 12 }"
-                  placeholder="留空使用默认提示词"
-                />
-              </div>
-
-              <div class="prompt-editor-block">
-                <div class="prompt-header">
-                  <label>👤 角色解析提示词</label>
-                  <n-button size="tiny" quaternary @click="resetPrompt('prompt_character')">↺ 恢复默认</n-button>
-                </div>
-                <n-input
-                  v-model:value="prompts.prompt_character"
-                  type="textarea"
-                  :autosize="{ minRows: 4, maxRows: 12 }"
-                  placeholder="留空使用默认提示词"
-                />
               </div>
             </div>
 
@@ -587,12 +588,36 @@ const prompts = reactive({
   prompt_expense: '',
   prompt_character: ''
 });
+const promptDefaults = reactive({
+  prompt_loot: '',
+  prompt_expense: '',
+  prompt_character: ''
+});
+const expandedDefaults = reactive({
+  prompt_loot: false,
+  prompt_expense: false,
+  prompt_character: false
+});
 const savingPrompts = ref(false);
+
+const promptEditors = [
+  { key: 'prompt_loot', icon: '📥', label: 'Loot 解析提示词' },
+  { key: 'prompt_expense', icon: '📤', label: '支出解析提示词' },
+  { key: 'prompt_character', icon: '👤', label: '角色解析提示词' }
+];
+
+function toggleDefaultRef(key) {
+  expandedDefaults[key] = !expandedDefaults[key];
+}
 
 async function loadPrompts() {
   try {
-    const data = await apiRequest('/api/settings/prompts');
+    const [data, defaults] = await Promise.all([
+      apiRequest('/api/settings/prompts'),
+      apiRequest('/api/settings/prompts/defaults')
+    ]);
     Object.assign(prompts, data);
+    Object.assign(promptDefaults, defaults);
   } catch (_) {}
 }
 
@@ -938,6 +963,50 @@ onMounted(() => {
   font-size: 14px;
   font-weight: 600;
   color: var(--text-bright);
+}
+
+/* Default prompt reference */
+.default-prompt-ref {
+  margin-top: 8px;
+}
+.default-prompt-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text-secondary);
+  user-select: none;
+  padding: 4px 0;
+  transition: color 0.2s;
+}
+.default-prompt-toggle:hover {
+  color: var(--gold);
+}
+.toggle-arrow {
+  display: inline-block;
+  font-size: 10px;
+  transition: transform 0.2s;
+}
+.toggle-arrow.open {
+  transform: rotate(90deg);
+}
+.default-prompt-content {
+  margin-top: 6px;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.2);
+  overflow: hidden;
+}
+.default-prompt-pre {
+  margin: 0;
+  padding: 12px 14px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  word-break: break-all;
+  font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
 }
 
 /* Empty hint */

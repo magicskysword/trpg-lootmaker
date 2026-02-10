@@ -3,6 +3,7 @@ const { v4: uuidv4 } = require('uuid');
 const { getDb } = require('../db');
 const { nowIso } = require('../utils/time');
 const { fetchModels } = require('../services/aiService');
+const { PROMPT_DEFAULTS } = require('./ai');
 
 const router = express.Router();
 
@@ -274,6 +275,10 @@ router.put('/campaign', async (req, res, next) => {
 // ===== AI Prompts =====
 
 const PROMPT_KEYS = ['prompt_loot', 'prompt_expense', 'prompt_character'];
+
+router.get('/prompts/defaults', (req, res) => {
+  return res.json(PROMPT_DEFAULTS);
+});
 
 router.get('/prompts', async (req, res, next) => {
   try {
