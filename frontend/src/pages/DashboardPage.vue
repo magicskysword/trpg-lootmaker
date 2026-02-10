@@ -34,21 +34,21 @@
     <div class="dashboard-grid">
       <!-- GM Card -->
       <div class="ornate-frame dm-card">
-        <h3 class="section-title">🎭 Game Master</h3>
+        <h3 class="section-title">🎭 {{ gmDisplayName }}</h3>
         <div v-if="!dm" class="empty-state">
           <span class="empty-icon">👤</span>
-          <span>暂未设置GM角色</span>
+          <span>暂未设置{{ gmDisplayName }}角色</span>
         </div>
         <div v-else class="dm-info">
           <div class="dm-avatar-wrap">
-            <img v-if="dm.portrait_path" :src="dm.portrait_path" class="dm-avatar" alt="GM" />
+            <img v-if="dm.portrait_path" :src="dm.portrait_path" class="dm-avatar" :alt="gmDisplayName" />
             <div v-else class="dm-avatar-placeholder" :style="{ background: dm.color }">
               {{ dm.name.slice(0, 1) }}
             </div>
           </div>
           <div class="dm-details">
             <div class="dm-name">{{ dm.name }}</div>
-            <span class="fantasy-badge arcane">GM</span>
+            <span class="fantasy-badge arcane">{{ gmDisplayName }}</span>
           </div>
         </div>
       </div>
@@ -125,6 +125,7 @@ const loading = ref(false);
 const dm = ref(null);
 const plCharacters = ref([]);
 const plValues = ref([]);
+const gmDisplayName = ref('GM');
 const metrics = reactive({
   totalGpIncome: 0,
   totalItemValue: 0,
@@ -166,7 +167,12 @@ async function loadData() {
   }
 }
 
-onMounted(loadData);
+onMounted(() => {
+  loadData();
+  apiRequest('/api/app-config').then(data => {
+    gmDisplayName.value = data.gm_display_name || 'GM';
+  }).catch(() => {});
+});
 </script>
 
 <style scoped>

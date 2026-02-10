@@ -11,6 +11,65 @@ const DEFAULT_SLOT_OPTIONS = [
   '躯体', '眼睛', '脚部', '手套', '手臂', '奇物'
 ];
 
+// ===== Default Prompts (used when no custom prompt is configured) =====
+
+const DEFAULT_LOOT_PROMPT = [
+  '你是TRPG Loot解析助手。',
+  '{{game_rules}}',
+  '请把输入解析成严格JSON，不要输出任何JSON以外文字。',
+  'JSON结构：{"loot_items":[{"name":"","type":"","slot":null,"quantity":1,"unit_price":0,"weight":0,"description":""}],"note":""}',
+  '当前仓库已有type：{{types}}。',
+  'type必须从上述列表中选择；若不确定，使用"其他"。',
+  '当前仓库已有装备槽位：{{slots}}。',
+  '当type为"装备"时，slot必须从上述槽位中选择；当type不是"装备"时，slot必须为null。',
+  '不要创造新的type或slot。',
+  '如果缺失字段，使用合理默认值。'
+].join('\n');
+
+const DEFAULT_EXPENSE_PROMPT = [
+  '你是TRPG 支出解析助手。',
+  '{{game_rules}}',
+  '用户会提供一份库存列表，格式为：#序号 物品名 ×数量',
+  '用户会告诉你哪些物品需要支出以及支出数量。',
+  '请把输入解析成严格JSON，不要输出任何JSON以外文字。',
+  'JSON结构：{"items":[{"seq":1,"quantity":1}]}',
+  'seq是库存列表中的序号（正整数），quantity是支出数量（正整数）。',
+  '所有数量必须使用正数。',
+  '只输出用户明确提到要支出的物品，不要输出库存列表中未提及的物品。'
+].join('\n');
+
+const DEFAULT_CHARACTER_PROMPT = [
+  '你是TRPG 角色资料解析助手。',
+  '{{game_rules}}',
+  '请把输入解析成严格JSON，不要输出任何JSON以外文字。',
+  'JSON结构：{"character":{"name":"","role":"PL","color":"#5B8FF9"},"buffs":[{"level":"天级","name":"","resource_note":"","description":""}],"items":[{"name":"","type":"其他","slot":null,"quantity":1,"unit_price":0,"weight":0,"description":""}]}',
+  'role可选：GM、PL、其他。'
+].join('\n');
+
+// ===== Template Injection =====
+
+async function loadGameRules(db) {
+  const row = await db.get("SELECT value FROM app_settings WHERE key = 'game_rules'");
+  return row?.value || '';
+}
+
+async function loadCustomPrompt(db, key) {
+  const row = await db.get('SELECT value FROM app_settings WHERE key = ?', [key]);
+  return row?.value || '';
+}
+
+function applyTemplate(template, vars) {
+  let result = template;
+  for (const [key, value] of Object.entries(vars)) {
+    result = result.replaceAll(`{{${key}}}`, value);
+  }
+  // Clean up any remaining empty template vars
+  result = result.replace(/\{\{[^}]*\}\}/g, '');
+  // Remove blank lines left by empty template vars
+  result = result.split('\n').filter(line => line.trim() !== '').join('\n');
+  return result;
+}
+
 async function loadLootTypeAndSlotContext(db) {
   const typeRows = await db.all(`
     SELECT DISTINCT type
@@ -43,37 +102,13 @@ async function loadLootTypeAndSlotContext(db) {
   };
 }
 
-function buildLootPrompt(context) {
-  return [
-    '你是Pathfinder 1e Loot解析助手。',
-    '请把输入解析成严格JSON，不要输出任何JSON以外文字。',
-    'JSON结构：{"loot_items":[{"name":"","type":"","slot":null,"quantity":1,"unit_price":0,"weight":0,"description":""}],"note":""}',
-    `当前仓库已有type：${JSON.stringify(context.types)}。`,
-    'type必须从上述列表中选择；若不确定，使用"其他"。',
-    `当前仓库已有装备槽位：${JSON.stringify(context.slots)}。`,
-    '当type为"装备"时，slot必须从上述槽位中选择；当type不是"装备"时，slot必须为null。',
-    '不要创造新的type或slot。',
-    '如果缺失字段，使用合理默认值。'
-  ].join('\n');
+async function buildFinalPrompt(db, promptKey, defaultPrompt, extraVars = {}) {
+  const customPrompt = await loadCustomPrompt(db, promptKey);
+  const template = customPrompt || defaultPrompt;
+  const gameRules = await loadGameRules(db);
+  return applyTemplate(template, { game_rules: gameRules, ...extraVars });
 }
 
-const EXPENSE_PROMPT = [
-  '你是Pathfinder 1e 支出解析助手。',
-  '用户会提供一份库存列表，格式为：#序号 物品名 ×数量',
-  '用户会告诉你哪些物品需要支出以及支出数量。',
-  '请把输入解析成严格JSON，不要输出任何JSON以外文字。',
-  'JSON结构：{"items":[{"seq":1,"quantity":1}]}',
-  'seq是库存列表中的序号（正整数），quantity是支出数量（正整数）。',
-  '所有数量必须使用正数。',
-  '只输出用户明确提到要支出的物品，不要输出库存列表中未提及的物品。'
-].join('\n');
-
-const CHARACTER_PROMPT = [
-  '你是Pathfinder 1e 角色资料解析助手。',
-  '请把输入解析成严格JSON，不要输出任何JSON以外文字。',
-  'JSON结构：{"character":{"name":"","role":"PL","color":"#5B8FF9"},"buffs":[{"level":"天级","name":"","resource_note":"","description":""}],"items":[{"name":"","type":"其他","slot":null,"quantity":1,"unit_price":0,"weight":0,"description":""}]}',
-  'role可选：GM、PL、其他。'
-].join('\n');
 
 async function getProvider(db, providerId) {
   if (providerId) {
@@ -160,7 +195,10 @@ router.post('/parse-loot', async (req, res, next) => {
       return res.status(400).json({ message: '请先在设置页配置AI Provider' });
     }
     const lootContext = await loadLootTypeAndSlotContext(db);
-    const lootPrompt = buildLootPrompt(lootContext);
+    const lootPrompt = await buildFinalPrompt(db, 'prompt_loot', DEFAULT_LOOT_PROMPT, {
+      types: JSON.stringify(lootContext.types),
+      slots: JSON.stringify(lootContext.slots)
+    });
 
     const caption = await maybeCaptionImage(db, provider, imageDataUrl || null);
     const mergedInput = [inputText, caption.text].filter(Boolean).join('\n\n');
@@ -198,10 +236,11 @@ router.post('/parse-expense', async (req, res, next) => {
       return res.status(400).json({ message: '请先在设置页配置AI Provider' });
     }
 
+    const expensePrompt = await buildFinalPrompt(db, 'prompt_expense', DEFAULT_EXPENSE_PROMPT);
     const caption = await maybeCaptionImage(db, provider, imageDataUrl || null);
     const mergedInput = [inputText, caption.text].filter(Boolean).join('\n\n');
 
-    const result = await callProvider(provider, EXPENSE_PROMPT, mergedInput, caption.imageDataUrl);
+    const result = await callProvider(provider, expensePrompt, mergedInput, caption.imageDataUrl);
 
     return res.json({
       provider: {
@@ -234,10 +273,11 @@ router.post('/parse-character', async (req, res, next) => {
       return res.status(400).json({ message: '请先在设置页配置AI Provider' });
     }
 
+    const characterPrompt = await buildFinalPrompt(db, 'prompt_character', DEFAULT_CHARACTER_PROMPT);
     const caption = await maybeCaptionImage(db, provider, imageDataUrl || null);
     const mergedInput = [inputText, caption.text].filter(Boolean).join('\n\n');
 
-    const result = await callProvider(provider, CHARACTER_PROMPT, mergedInput, caption.imageDataUrl);
+    const result = await callProvider(provider, characterPrompt, mergedInput, caption.imageDataUrl);
 
     return res.json({
       provider: {

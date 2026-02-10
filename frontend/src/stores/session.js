@@ -15,8 +15,18 @@ export async function refreshSession() {
   return data;
 }
 
+export async function verifyAdmin(password) {
+  const data = await apiRequest('/api/auth/admin-login', {
+    method: 'POST',
+    body: { password }
+  });
+  sessionState.adminVerified = true;
+  return data;
+}
+
 export function clearSessionState() {
   sessionState.checked = true;
   sessionState.loggedIn = false;
   sessionState.adminVerified = false;
 }
+

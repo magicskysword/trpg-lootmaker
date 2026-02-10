@@ -38,10 +38,10 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
             type=ref,event=branch
             type=ref,event=tag
             type=sha
-            type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Build and (conditionally) push image
         uses: docker/build-push-action@v6

@@ -18,7 +18,7 @@ router.post('/login', (req, res) => {
 
 router.post('/logout', (req, res) => {
   req.session.destroy(() => {
-    res.clearCookie('pf_loot_sid');
+    res.clearCookie('trpg_loot_sid');
     res.json({ message: '已退出登录' });
   });
 });

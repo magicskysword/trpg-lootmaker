@@ -48,7 +48,7 @@ async function bootstrap() {
 
   app.use(
     session({
-      name: 'pf_loot_sid',
+      name: 'trpg_loot_sid',
       secret: config.sessionSecret,
       resave: false,
       saveUninitialized: false,
@@ -77,13 +77,24 @@ async function bootstrap() {
   app.use('/api/transactions', requireLogin, transactionRoutes);
   app.use('/api/settings', requireAdmin, settingsRoutes);
 
-  // Public campaign name endpoint (no admin required, just login)
-  app.get('/api/campaign-name', requireLogin, async (req, res, next) => {
+  // Public app config endpoint (no auth required — used by LoginPage and MainLayout)
+  app.get('/api/app-config', async (req, res, next) => {
     try {
       const { getDb } = require('./db');
       const db = await getDb();
-      const row = await db.get("SELECT value FROM app_settings WHERE key = 'campaign_name'");
-      return res.json({ campaign_name: row?.value || '' });
+      const keys = ['campaign_name', 'app_title', 'app_subtitle', 'gm_display_name'];
+      const rows = await db.all(
+        `SELECT key, value FROM app_settings WHERE key IN (${keys.map(() => '?').join(',')})`,
+        keys
+      );
+      const map = {};
+      for (const r of rows) map[r.key] = r.value;
+      return res.json({
+        campaign_name: map.campaign_name || '',
+        app_title: map.app_title || '',
+        app_subtitle: map.app_subtitle || '',
+        gm_display_name: map.gm_display_name || 'GM'
+      });
     } catch (error) {
       return next(error);
     }

@@ -230,7 +230,7 @@
                 </div>
                 <div class="cli-info">
                   <span class="cli-name">{{ ch.name }}</span>
-                  <span class="fantasy-badge" :class="ch.role === 'GM' ? 'arcane' : 'gold'" style="font-size:10px">{{ ch.role }}</span>
+                  <span class="fantasy-badge" :class="ch.role === 'GM' ? 'arcane' : 'gold'" style="font-size:10px">{{ ch.role === 'GM' ? gmDisplayName : ch.role }}</span>
                 </div>
               </div>
               <div v-if="!characters.length" class="empty-state small">暂无角色</div>
@@ -1218,11 +1218,12 @@ async function removeAllocation(itemId, characterId) {
 const selectedCharId = ref('');
 const charDetailTab = ref('edit');
 const newCharModalShow = ref(false);
-const roleOptions = [
-  { label: 'GM', value: 'GM' },
+const gmDisplayName = ref('GM');
+const roleOptions = computed(() => [
+  { label: gmDisplayName.value, value: 'GM' },
   { label: 'PL', value: 'PL' },
   { label: '其他', value: '其他' }
-];
+]);
 
 const selectedChar = computed(() =>
   characters.value.find((x) => x.id === selectedCharId.value) || null
@@ -1602,6 +1603,9 @@ function formatDate(v) {
 
 onMounted(async () => {
   await Promise.all([loadCharacters(), loadItems(), loadLootRecords(), loadTransactions()]);
+  apiRequest('/api/app-config').then(data => {
+    gmDisplayName.value = data.gm_display_name || 'GM';
+  }).catch(() => {});
 });
 </script>
 

@@ -9,10 +9,10 @@
           <div class="title-block">
             <h1 class="app-title">
               <span class="title-icon">⚔</span>
-              {{ campaignName || 'Pathfinder Loot Manager' }}
+              {{ campaignName || appTitle || 'TRPG Loot Manager' }}
               <span class="title-icon">⚔</span>
             </h1>
-            <p class="app-subtitle">{{ campaignName ? 'Pathfinder 1e 战役物资管理系统' : '开拓者 1e 战役物资管理系统' }}</p>
+            <p class="app-subtitle">{{ appSubtitle || '战役物资管理系统' }}</p>
           </div>
           <div class="nav-actions">
             <span v-if="sessionState.adminVerified" class="fantasy-badge gold">✦ 管理员</span>
@@ -58,6 +58,9 @@ const route = useRoute();
 const router = useRouter();
 const message = useMessage();
 const campaignName = ref('');
+const appTitle = ref('');
+const appSubtitle = ref('');
+const gmDisplayName = ref('GM');
 
 const tabs = [
   { path: '/dashboard', label: '主页', icon: '🏰' },
@@ -86,8 +89,13 @@ async function logout() {
 
 onMounted(async () => {
   try {
-    const data = await apiRequest('/api/campaign-name');
+    const data = await apiRequest('/api/app-config');
     campaignName.value = data.campaign_name || '';
+    appTitle.value = data.app_title || '';
+    appSubtitle.value = data.app_subtitle || '';
+    gmDisplayName.value = data.gm_display_name || 'GM';
+    const titleText = campaignName.value || appTitle.value || 'TRPG Loot Manager';
+    document.title = titleText;
   } catch (_) {}
 });
 </script>

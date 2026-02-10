@@ -1,8 +1,8 @@
 {
-  "name": "pathfinder-lootmaker",
+  "name": "trpg-lootmaker",
   "version": "1.0.0",
   "private": true,
-  "description": "Pathfinder 1e Loot 管理器",
+  "description": "TRPG Loot 管理器",
   "scripts": {
     "dev": "concurrently \"npm:dev:server\" \"npm:dev:frontend\"",
     "dev:server": "nodemon server/index.js",

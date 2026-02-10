@@ -13,8 +13,8 @@
         <!-- Title -->
         <div class="portal-header">
           <div class="emblem">⚜</div>
-          <h1 class="portal-title">Pathfinder</h1>
-          <h2 class="portal-subtitle">Loot Manager</h2>
+          <h1 class="portal-title">{{ portalTitle }}</h1>
+          <h2 class="portal-subtitle">{{ portalSubtitle }}</h2>
           <div class="ornament-line">
             <span></span>
             <span class="diamond">◆</span>
@@ -53,7 +53,7 @@
 </template>
 
 <script setup>
-import { ref } from 'vue';
+import { onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { NInput, NButton, useMessage } from 'naive-ui';
 import { apiRequest } from '../utils/api';
@@ -63,6 +63,18 @@ const router = useRouter();
 const message = useMessage();
 const password = ref('');
 const loading = ref(false);
+const portalTitle = ref('TRPG');
+const portalSubtitle = ref('Loot Manager');
+
+onMounted(async () => {
+  try {
+    const data = await apiRequest('/api/app-config');
+    if (data.app_title) portalTitle.value = data.app_title;
+    if (data.app_subtitle) portalSubtitle.value = data.app_subtitle;
+    if (data.campaign_name) portalTitle.value = data.campaign_name;
+    document.title = portalTitle.value;
+  } catch (_) {}
+});
 
 function particleStyle(i) {
   const left = Math.random() * 100;

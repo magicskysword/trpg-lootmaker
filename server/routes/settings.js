@@ -196,7 +196,55 @@ router.post('/providers/:id/fetch-models', async (req, res, next) => {
   }
 });
 
-// ===== Campaign Settings =====
+// ===== Site Config (title / subtitle / gm_display_name / campaign_name) =====
+
+const SITE_CONFIG_KEYS = ['campaign_name', 'app_title', 'app_subtitle', 'gm_display_name'];
+
+async function getSiteConfig(db) {
+  const rows = await db.all(
+    `SELECT key, value FROM app_settings WHERE key IN (${SITE_CONFIG_KEYS.map(() => '?').join(',')})`,
+    SITE_CONFIG_KEYS
+  );
+  const map = {};
+  for (const r of rows) map[r.key] = r.value;
+  return {
+    campaign_name: map.campaign_name || '',
+    app_title: map.app_title || '',
+    app_subtitle: map.app_subtitle || '',
+    gm_display_name: map.gm_display_name || 'GM'
+  };
+}
+
+router.get('/site-config', async (req, res, next) => {
+  try {
+    const db = await getDb();
+    return res.json(await getSiteConfig(db));
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.put('/site-config', async (req, res, next) => {
+  try {
+    const db = await getDb();
+    const now = nowIso();
+    const body = req.body || {};
+    for (const key of SITE_CONFIG_KEYS) {
+      if (body[key] !== undefined) {
+        await db.run(
+          `INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, ?)
+           ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+          [key, String(body[key]), now]
+        );
+      }
+    }
+    return res.json(await getSiteConfig(db));
+  } catch (error) {
+    return next(error);
+  }
+});
+
+// Backward-compatible campaign endpoints
 router.get('/campaign', async (req, res, next) => {
   try {
     const db = await getDb();
@@ -223,4 +271,87 @@ router.put('/campaign', async (req, res, next) => {
   }
 });
 
+// ===== AI Prompts =====
+
+const PROMPT_KEYS = ['prompt_loot', 'prompt_expense', 'prompt_character'];
+
+router.get('/prompts', async (req, res, next) => {
+  try {
+    const db = await getDb();
+    const rows = await db.all(
+      `SELECT key, value FROM app_settings WHERE key IN (${PROMPT_KEYS.map(() => '?').join(',')})`,
+      PROMPT_KEYS
+    );
+    const map = {};
+    for (const r of rows) map[r.key] = r.value;
+    return res.json({
+      prompt_loot: map.prompt_loot || '',
+      prompt_expense: map.prompt_expense || '',
+      prompt_character: map.prompt_character || ''
+    });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.put('/prompts', async (req, res, next) => {
+  try {
+    const db = await getDb();
+    const now = nowIso();
+    const body = req.body || {};
+    for (const key of PROMPT_KEYS) {
+      if (body[key] !== undefined) {
+        await db.run(
+          `INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, ?)
+           ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+          [key, String(body[key]), now]
+        );
+      }
+    }
+    // Return updated values
+    const rows = await db.all(
+      `SELECT key, value FROM app_settings WHERE key IN (${PROMPT_KEYS.map(() => '?').join(',')})`,
+      PROMPT_KEYS
+    );
+    const map = {};
+    for (const r of rows) map[r.key] = r.value;
+    return res.json({
+      prompt_loot: map.prompt_loot || '',
+      prompt_expense: map.prompt_expense || '',
+      prompt_character: map.prompt_character || ''
+    });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+// ===== Game Rules (template variable for prompts) =====
+
+router.get('/game-rules', async (req, res, next) => {
+  try {
+    const db = await getDb();
+    const row = await db.get("SELECT value FROM app_settings WHERE key = 'game_rules'");
+    return res.json({ game_rules: row?.value || '' });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.put('/game-rules', async (req, res, next) => {
+  try {
+    const { game_rules = '' } = req.body || {};
+    const db = await getDb();
+    const now = nowIso();
+    await db.run(
+      `INSERT INTO app_settings (key, value, updated_at) VALUES ('game_rules', ?, ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+      [game_rules, now]
+    );
+    return res.json({ game_rules });
+  } catch (error) {
+    return next(error);
+  }
+});
+
 module.exports = router;
+
