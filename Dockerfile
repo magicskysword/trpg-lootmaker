@@ -1,15 +1,17 @@
-FROM node:20-alpine AS build
+ARG NODE_VERSION=24.22.1
+
+FROM node:${NODE_VERSION}-alpine AS build
 
 WORKDIR /app
 
 COPY package*.json ./
-RUN npm install
+RUN npm ci
 
 COPY . .
 RUN npm run build
 RUN npm prune --omit=dev
 
-FROM node:20-alpine AS runtime
+FROM node:${NODE_VERSION}-alpine AS runtime
 
 WORKDIR /app
 ENV NODE_ENV=production

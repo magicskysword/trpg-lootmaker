@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "private": true,
   "description": "TRPG Loot 管理器",
+  "engines": {
+    "node": ">=24.22.1 <25"
+  },
   "scripts": {
     "dev": "concurrently \"npm:dev:server\" \"npm:dev:frontend\"",
     "dev:server": "nodemon server/index.js",

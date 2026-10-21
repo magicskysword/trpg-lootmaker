@@ -109,8 +109,10 @@ Pathfinder 1e 战役物资管理系统，前后端一体化实现。
 
 ### 2. 本地开发
 
+运行环境：Node.js 24.22.1 或更高的 24.x 版本。Docker 构建与生产运行使用相同的 Node.js 版本。
+
 ```bash
-npm install
+npm ci
 cp .env.example .env
 npm run dev
 ```
